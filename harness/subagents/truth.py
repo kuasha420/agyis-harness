@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sys
 from typing import List, Optional, Tuple
 
 from harness.subagents.liveness import probe_subagent_liveness
@@ -170,3 +171,55 @@ def validate_transition_payload_truth(
             errors.append(f"Failed to probe delegate liveness: {exc}")
 
     return len(errors) == 0, errors
+
+
+def is_pause_gate_active(workspace: Path) -> bool:
+    """Returns True when .agents/artifacts/pause_gate.json exists with valid JSON and active/omitted pause status."""
+    gate_path = Path(workspace) / ".agents" / "artifacts" / "pause_gate.json"
+    if not gate_path.is_file():
+        return False
+    try:
+        data = json.loads(gate_path.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    status = str(data.get("status") or "").strip().lower()
+    return status in ("", "pausing", "paused")
+
+
+def has_active_native_subagents(
+    workspace: Path,
+    *,
+    brain_dir: Optional[Path] = None,
+    conv_id: Optional[str] = None,
+) -> bool:
+    """Returns True when at least one native child subagent for conv_id is currently ACTIVE."""
+    workspace = Path(workspace)
+    eff_cid = conv_id.strip() if isinstance(conv_id, str) and conv_id.strip() not in ("", "default") else None
+    eff_brain_root: Optional[Path] = None
+    if brain_dir is not None and str(brain_dir).strip():
+        b_p = Path(brain_dir)
+        eff_brain_root = b_p.parent if (eff_cid and b_p.name == eff_cid) else b_p
+
+    if eff_brain_root is None and eff_cid is None:
+        return False
+    if eff_brain_root is None and is_in_temp_dir(workspace) and is_in_live_home_gemini(get_active_brain_dir()):
+        return False
+
+    try:
+        statuses = probe_subagent_liveness(
+            workspace_dir=workspace,
+            brain_dir=eff_brain_root,
+            conv_id=eff_cid,
+        )
+    except (OSError, ValueError, TypeError) as exc:
+        sys.stderr.write(f"[AGYIS TRUTH] Warning: Failed probing native subagent liveness: {exc}\n")
+        return False
+
+    for st in statuses:
+        if eff_cid and st.conversation_id == eff_cid and st.progress_file is None:
+            continue
+        if st.progress_file is None and st.liveness_state == "ACTIVE":
+            return True
+    return False

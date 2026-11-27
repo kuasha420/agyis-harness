@@ -27,10 +27,12 @@ from unittest.mock import patch
 
 from harness.hooks.anti_loop_hook import check_anti_loop
 from harness.hooks.fence_gates import (
+    _classify_dispatched_subagents,
     _has_dispatched_subagents,
     check_pre_tool_use,
     evaluate_stop,
 )
+from harness.hooks.fence_state import save_state
 from harness.hooks.pre_invocation_hook import evaluate_pre_invocation
 from harness.hooks.token_proximity_guard import (
     format_terminal_gauge,
@@ -41,7 +43,11 @@ from harness.hooks.wire_compat import (
     enqueue_pending_advisory,
 )
 from harness.subagents.routing import build_stage_transition_payload
-from harness.subagents.truth import validate_transition_payload_truth
+from harness.subagents.truth import (
+    has_active_native_subagents,
+    is_pause_gate_active,
+    validate_transition_payload_truth,
+)
 from harness.subagents.verdict import generate_audit_verdict
 from harness.trajectory import (
     ROLE_DEEP_EXECUTION,
@@ -350,12 +356,14 @@ class TestNativeSubagentStopGateTruth(unittest.TestCase):
         plan_file.parent.mkdir(parents=True, exist_ok=True)
         plan_file.write_text(json.dumps({"workers": []}), encoding="utf-8")
         self.assertFalse(_has_dispatched_subagents(self.ws, None, conv_id=cid, brain_dir=self.brain_dir))
+        self.assertEqual(_classify_dispatched_subagents(self.ws, None, conv_id=cid, brain_dir=self.brain_dir), "none")
 
         plan_file.write_text(
             json.dumps({"workers": [{"id": "worker-1", "name": "agyis_builder"}]}),
             encoding="utf-8",
         )
         self.assertTrue(_has_dispatched_subagents(self.ws, None, conv_id=cid, brain_dir=self.brain_dir))
+        self.assertEqual(_classify_dispatched_subagents(self.ws, None, conv_id=cid, brain_dir=self.brain_dir), "native")
 
     def test_detects_native_transcript_dispatches(self) -> None:
         for idx, tc in enumerate((
@@ -373,6 +381,10 @@ class TestNativeSubagentStopGateTruth(unittest.TestCase):
             )
             with self.subTest(tool=tc["name"]):
                 self.assertTrue(_has_dispatched_subagents(self.ws, None, conv_id=cid, brain_dir=self.brain_dir))
+                self.assertEqual(
+                    _classify_dispatched_subagents(self.ws, None, conv_id=cid, brain_dir=self.brain_dir),
+                    "native",
+                )
 
     def test_detects_native_conversation_summaries_db_children(self) -> None:
         cid = "parent-db-01"
@@ -393,13 +405,15 @@ class TestNativeSubagentStopGateTruth(unittest.TestCase):
 
         with patch.dict(os.environ, {"ANTIGRAVITY_APP_DATA_DIR": str(self.app_dir)}, clear=False):
             self.assertTrue(_has_dispatched_subagents(self.ws, None, conv_id=cid))
+            self.assertEqual(_classify_dispatched_subagents(self.ws, None, conv_id=cid), "native")
             self.assertFalse(_has_dispatched_subagents(self.ws, None, conv_id="unrelated-cid"))
+            self.assertEqual(_classify_dispatched_subagents(self.ws, None, conv_id="unrelated-cid"), "none")
 
     def test_orchestrator_stop_surfaces_concrete_dead_native_delegate_error(self) -> None:
         parent_cid = "parent-live-check-01"
         child_cid = "child-dead-worker-01"
 
-        # Parent transcript spawned child_cid via invoke_subagent
+        # Parent transcript spawned child_cid via invoke_subagent (native only, no .agents/teamwork)
         parent_tx = self.brain_dir / parent_cid / ".system_generated" / "logs" / "transcript.jsonl"
         parent_tx.parent.mkdir(parents=True, exist_ok=True)
         parent_tx.write_text(
@@ -410,8 +424,23 @@ class TestNativeSubagentStopGateTruth(unittest.TestCase):
             }) + "\n",
             encoding="utf-8",
         )
+        self.assertEqual(
+            _classify_dispatched_subagents(self.ws, None, conv_id=parent_cid, brain_dir=self.brain_dir),
+            "native",
+        )
 
-        # Native child transcript with NO .agents/teamwork/ dir, aged > 1800s -> DEAD
+        # Scenario 2: Native invoke_subagent + code_dirty=False planning/handoff turn -> allow (no legacy payload needed)
+        with self.subTest("native_clean_planning_turn_allowed"):
+            res_clean = evaluate_stop(
+                conv_id=parent_cid,
+                state_dir=self.state_dir,
+                cwd=self.ws,
+                brain_dir=self.brain_dir,
+                payload={"role": "agyis_coordinator"},
+            )
+            self.assertEqual(res_clean.get("decision"), "allow")
+
+        # Scenario 3a: Native invoke_subagent + code_dirty=True + ACTIVE native child -> allow (reactive wakeup wait)
         child_tx = self.brain_dir / child_cid / ".system_generated" / "logs" / "transcript.jsonl"
         child_tx.parent.mkdir(parents=True, exist_ok=True)
         child_tx.write_text(
@@ -424,34 +453,33 @@ class TestNativeSubagentStopGateTruth(unittest.TestCase):
             }) + "\n",
             encoding="utf-8",
         )
-        old_ts = time.time() - 3600
-        os.utime(child_tx, (old_ts, old_ts))
-
-        # Write a valid transition payload so the ONLY failure is the DEAD native delegate
-        self._write_valid_transition_payload()
-
-        valid, errors = validate_transition_payload_truth(
-            self.ws,
-            brain_dir=self.brain_dir,
-            conv_id=parent_cid,
-        )
-        self.assertFalse(valid)
-        self.assertTrue(any("DEAD state" in e and "agyis_builder" in e for e in errors))
-
-        res = evaluate_stop(
+        save_state(
+            {
+                "conversation_id": parent_cid,
+                "code_dirty": True,
+                "spec_dirty": False,
+                "turn_mutated": True,
+                "last_modified_files": ["harness/hooks/fence_gates.py"],
+                "gate2_block_count": 0,
+                "block_count": 0,
+            },
             conv_id=parent_cid,
             state_dir=self.state_dir,
-            cwd=self.ws,
-            brain_dir=self.brain_dir,
-            payload={"role": "agyis_coordinator"},
         )
-        self.assertEqual(res.get("decision"), "continue")
-        reason = res.get("reason", "")
-        self.assertIn("Persona Truth Violation", reason)
-        self.assertIn("DEAD state", reason)
-        self.assertIn("agyis_builder", reason)
+        with self.subTest("native_dirty_with_active_child_waits_for_wakeup"):
+            self.assertTrue(
+                has_active_native_subagents(self.ws, brain_dir=self.brain_dir, conv_id=parent_cid)
+            )
+            res_active_wait = evaluate_stop(
+                conv_id=parent_cid,
+                state_dir=self.state_dir,
+                cwd=self.ws,
+                brain_dir=self.brain_dir,
+                payload={"role": "agyis_coordinator"},
+            )
+            self.assertEqual(res_active_wait.get("decision"), "allow")
 
-        # Once native child finishes cleanly and auditor verdict exists, orchestrator stop is allowed
+        # Scenario 3b: Native invoke_subagent + code_dirty=True + missing audit_verdict.json (child finished) -> Gate 2
         child_tx.write_text(
             json.dumps({
                 "step_index": 0,
@@ -467,6 +495,60 @@ class TestNativeSubagentStopGateTruth(unittest.TestCase):
             }) + "\n",
             encoding="utf-8",
         )
+        with self.subTest("native_dirty_without_verdict_enforces_gate2"):
+            self.assertFalse(
+                has_active_native_subagents(self.ws, brain_dir=self.brain_dir, conv_id=parent_cid)
+            )
+            res_g2_1 = evaluate_stop(
+                conv_id=parent_cid,
+                state_dir=self.state_dir,
+                cwd=self.ws,
+                brain_dir=self.brain_dir,
+                payload={"role": "agyis_coordinator"},
+            )
+            self.assertEqual(res_g2_1.get("decision"), "continue")
+            self.assertIn("Dual-Gate Verification Fence (Gate 2)", res_g2_1.get("reason", ""))
+            self.assertIn("Native subagents modified files", res_g2_1.get("reason", ""))
+            self.assertNotIn("psl_stage_transition_payload.json", res_g2_1.get("reason", ""))
+
+            res_g2_2 = evaluate_stop(
+                conv_id=parent_cid,
+                state_dir=self.state_dir,
+                cwd=self.ws,
+                brain_dir=self.brain_dir,
+                payload={"role": "agyis_coordinator"},
+            )
+            self.assertEqual(res_g2_2.get("decision"), "continue")
+
+            # 3rd attempt trips Gate 2 anti-deadlock valve cleanly
+            res_g2_3 = evaluate_stop(
+                conv_id=parent_cid,
+                state_dir=self.state_dir,
+                cwd=self.ws,
+                brain_dir=self.brain_dir,
+                payload={"role": "agyis_coordinator"},
+            )
+            self.assertEqual(res_g2_3, {"decision": "allow"})
+
+        # Scenario 4: Active .agents/artifacts/pause_gate.json (status: paused) -> allow
+        pause_gate = self.ws / ".agents" / "artifacts" / "pause_gate.json"
+        pause_gate.parent.mkdir(parents=True, exist_ok=True)
+        pause_gate.write_text(json.dumps({"status": "paused", "reason": "operator pause"}), encoding="utf-8")
+        with self.subTest("pause_gate_exempts_orchestrator_stop"):
+            self.assertTrue(is_pause_gate_active(self.ws))
+            res_paused = evaluate_stop(
+                conv_id=parent_cid,
+                state_dir=self.state_dir,
+                cwd=self.ws,
+                brain_dir=self.brain_dir,
+                payload={"role": "agyis_coordinator"},
+            )
+            self.assertEqual(res_paused.get("decision"), "allow")
+            pause_gate.write_text(json.dumps({"status": "resumed"}), encoding="utf-8")
+            self.assertFalse(is_pause_gate_active(self.ws))
+            pause_gate.unlink()
+
+        # Scenario 1: Native invoke_subagent + valid audit_verdict.json (NO psl_stage_transition_payload.json) -> allow
         generate_audit_verdict(
             workspace_dir=self.ws,
             task_id="TRACK-2",
@@ -480,7 +562,89 @@ class TestNativeSubagentStopGateTruth(unittest.TestCase):
             },
             aff_result={"status": "PASS", "score": 100.0},
         )
+        with self.subTest("native_valid_audit_verdict_allows_without_legacy_payload"):
+            self.assertFalse((self.ws / "psl_stage_transition_payload.json").exists())
+            res_verdict_ok = evaluate_stop(
+                conv_id=parent_cid,
+                state_dir=self.state_dir,
+                cwd=self.ws,
+                brain_dir=self.brain_dir,
+                payload={"role": "agyis_coordinator"},
+            )
+            self.assertEqual(res_verdict_ok.get("decision"), "allow")
 
+        # Scenario 5: Legacy .agents/teamwork/<worker> without psl_stage_transition_payload.json -> Persona Truth Violation
+        legacy_worker = self.ws / ".agents" / "teamwork" / "builder_worker"
+        legacy_worker.mkdir(parents=True, exist_ok=True)
+        self.assertEqual(
+            _classify_dispatched_subagents(self.ws, None, conv_id=parent_cid, brain_dir=self.brain_dir),
+            "legacy",
+        )
+        with self.subTest("legacy_teamwork_without_payload_blocks_with_concrete_error"):
+            res_legacy_missing = evaluate_stop(
+                conv_id="legacy-missing-payload-cid",
+                state_dir=self.state_dir,
+                cwd=self.ws,
+                brain_dir=self.brain_dir,
+                payload={"role": "agyis_coordinator"},
+            )
+            self.assertEqual(res_legacy_missing.get("decision"), "continue")
+            reason_missing = res_legacy_missing.get("reason", "")
+            self.assertIn("Persona Truth Violation", reason_missing)
+            self.assertIn("Missing stage transition payload file: psl_stage_transition_payload.json", reason_missing)
+
+        # Legacy teamwork WITH valid payload + aged DEAD native child still surfaces concrete DEAD delegate error
+        child_tx.write_text(
+            json.dumps({
+                "step_index": 0,
+                "conversation_id": child_cid,
+                "parent_conversation_id": parent_cid,
+                "role": "agyis_builder",
+                "content": "Executing Track 2 implementation",
+            }) + "\n",
+            encoding="utf-8",
+        )
+        old_ts = time.time() - 3600
+        os.utime(child_tx, (old_ts, old_ts))
+        self._write_valid_transition_payload()
+
+        valid, errors = validate_transition_payload_truth(
+            self.ws,
+            brain_dir=self.brain_dir,
+            conv_id=parent_cid,
+        )
+        self.assertFalse(valid)
+        self.assertTrue(any("DEAD state" in e and "agyis_builder" in e for e in errors))
+
+        res_dead = evaluate_stop(
+            conv_id=parent_cid,
+            state_dir=self.state_dir,
+            cwd=self.ws,
+            brain_dir=self.brain_dir,
+            payload={"role": "agyis_coordinator"},
+        )
+        self.assertEqual(res_dead.get("decision"), "continue")
+        reason_dead = res_dead.get("reason", "")
+        self.assertIn("Persona Truth Violation", reason_dead)
+        self.assertIn("DEAD state", reason_dead)
+        self.assertIn("agyis_builder", reason_dead)
+
+        # Once child finishes cleanly and valid verdict + payload exist, legacy orchestrator stop is allowed
+        child_tx.write_text(
+            json.dumps({
+                "step_index": 0,
+                "conversation_id": child_cid,
+                "parent_conversation_id": parent_cid,
+                "role": "agyis_builder",
+                "content": "Executing Track 2 implementation",
+            }) + "\n" + json.dumps({
+                "step_index": 1,
+                "type": "PLANNER_RESPONSE",
+                "status": "DONE",
+                "tool_calls": [{"name": "finish", "args": {}}],
+            }) + "\n",
+            encoding="utf-8",
+        )
         res_ok = evaluate_stop(
             conv_id=parent_cid,
             state_dir=self.state_dir,
