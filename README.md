@@ -8,7 +8,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Platform](https://img.shields.io/badge/Platform-Google_Antigravity_v2.34-4285F4.svg)](https://antigravity.google)
 [![Models](https://img.shields.io/badge/Models-Gemini_4_Ready_(512k%2F1M)-8E75B2.svg)](docs/specs/antigravity_v2_34_compatibility_inventory.md)
-[![Version](https://img.shields.io/badge/Version-v1.1.0-brightgreen.svg)](https://github.com/kuasha420/agyis-harness/releases/tag/v1.1.0)
+[![Version](https://img.shields.io/badge/Version-v1.1.1-brightgreen.svg)](https://github.com/kuasha420/agyis-harness/releases/tag/v1.1.1)
 [![CI](https://github.com/kuasha420/agyis-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/kuasha420/agyis-harness/actions/workflows/ci.yml)
 [![Tests](https://img.shields.io/badge/Tests-2623_Hermetic_Passing-brightgreen.svg)](docs/official-specs/testing-contracts.md)
 [![AFF](https://img.shields.io/badge/AFF-100%2F100-brightgreen.svg)](docs/taxonomy/project-ledger.md)
@@ -303,8 +303,8 @@ python3 -m harness.cli rules --lint  # Verify agent rules & zero echo duplicatio
 
 ## 🗺️ Master Roadmap & Architectural Horizons
 
-- **Horizon 0 & 1 (Completed — `v1.0.0` GA -> `v1.1.0` Uplift)**: Empirical taxonomy (`3,856`-session Gate 0 corpus), **PSL Invariant Codex v2** (`PSL-INV-001`–`008` + `PSL-RE-001`), **7** lifecycle hook blocks (**8** runner checks), **29**-command CLI suite (`30` parser entries incl. `release` & `changelogs`), **32** modular skills (incl. `pause` & `resume`), **8** canonical `v2.34+`/`v2.35.2` personas (`<=20` tool ceiling), strict `exa.hooks_pb` wire compatibility, Option-B checkpoint ConnectRPC Trajectory HUD & `:40624` playback parity, Orbital Aegis 5-route Light/Dark `2.5D` showcase, ELF/PE cleanroom RE tooling, **29/29** Antigravity `v2.34.0` / Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`/`1M`) compatibility drifts resolved, hardened sync-daemon/COPY/launcher stability (`#119`, `#120`, `#121`), and CI/release wheel publishing.
-- **Horizon 2 (Post-`v1.1.0`)**: Deferred `ADR-029` Spatial Terminal Multiplexing, Cross-Node Swarm & Publication, and RE & Audit Hardening.
+- **Horizon 0 & 1 (Completed — `v1.0.0` GA -> `v1.1.1` Uplift)**: Empirical taxonomy (`3,856`-session Gate 0 corpus), **PSL Invariant Codex v2** (`PSL-INV-001`–`008` + `PSL-RE-001`), **7** lifecycle hook blocks (**8** runner checks), **29**-command CLI suite (`30` parser entries incl. `release` & `changelogs`), **32** modular skills (incl. `pause` & `resume`), **8** canonical `v2.34+`/`v2.35.2` personas (`<=20` tool ceiling), strict `exa.hooks_pb` wire compatibility, Option-B checkpoint ConnectRPC Trajectory HUD & `:40624` playback parity, Orbital Aegis 5-route Light/Dark `2.5D` showcase, ELF/PE cleanroom RE tooling, **29/29** Antigravity `v2.34.0` / Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`/`1M`) compatibility drifts resolved, hardened sync-daemon/COPY/launcher stability (`#119`, `#120`, `#121`), and CI/release wheel publishing.
+- **Horizon 2 (Post-`v1.1.1`)**: Deferred `ADR-029` Spatial Terminal Multiplexing, Cross-Node Swarm & Publication, and RE & Audit Hardening.
 
 👉 **[roadmap.md](roadmap.md)** | **[CHANGELOG.md](CHANGELOG.md)** | **[docs/taxonomy/project-ledger.md](docs/taxonomy/project-ledger.md)** | **[docs/adr/README.md](docs/adr/README.md)**
 

@@ -26,7 +26,7 @@ This human operator runbook establishes **`agyis onboard`** as the universal pat
 | **Python** | CPython >= 3.12 | `python3 --version` | Standard library only; zero external runtime dependencies. |
 | **Git** | 2.38+ | `git --version` | Safe worktree and exclude support. |
 | **GitHub CLI (`gh`)** | 2.30+ | `gh auth status` | Required for remote permission checks and PR creation. |
-| **Agyis Harness** | `1.1.0` | `agyis doctor` | Installed globally (`~/.local/bin/agyis`) or via `./agyis`. |
+| **Agyis Harness** | `1.1.1` | `agyis doctor` | Installed globally (`~/.local/bin/agyis`) or via `./agyis`. |
 
 For cross-organization PRs or fork provisioning, ensure `repo` and `read:org` scopes are active:
 
