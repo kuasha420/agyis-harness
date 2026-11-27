@@ -32,6 +32,7 @@ _COMMAND_MAP: Dict[str, Tuple[str, str]] = {
     "cmd_onboard": ("harness.commands.onboard", "cmd_onboard"),
     "cmd_verify": ("harness.commands.verify", "cmd_verify"),
     "cmd_gui": ("harness.commands.gui", "cmd_gui"),
+    "cmd_release": ("harness.commands.release", "cmd_release"),
     "cmd_release_notes": ("harness.commands.release_notes", "cmd_release_notes"),
     "cmd_changelog": ("harness.commands.changelog", "cmd_changelog"),
     "cmd_checkpoint": ("harness.commands.checkpoint", "cmd_checkpoint"),

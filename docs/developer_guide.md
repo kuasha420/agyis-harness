@@ -6,7 +6,7 @@
 # Agyis Harness — Developer & Architecture Guide
 
 **Target Audience**: Harness Contributors, Maintainers, and Autonomous Agent Architects  
-**Version**: `1.1.0` (`2026-11-27`)  
+**Version**: `1.1.1` (`2026-11-27`)  
 **Repository**: `agyis-harness` (Package module: `harness`)  
 
 ---
@@ -23,22 +23,22 @@ agyis-harness/
 ├── hooks.json                # Declarative lifecycle hook registrations (7 blocks -> 8 runner targets)
 │
 ├── harness/                  # [THE PRODUCT] Distributable core package
-│   ├── cli.py                # Unified 28-command `agyis` CLI dispatcher (`psl` legacy alias)
+│   ├── cli.py                # Unified 29-command `agyis` CLI dispatcher (`30` parser entries incl. `changelogs`; `psl` legacy alias)
 │   ├── discovery.py          # Global/workspace resource discovery & root path resolution
 │   ├── agents/               # 8 canonical `agyis_*` specialist personas (<=20 v2.34+ tools)
 │   ├── cleanroom/            # Specification, obligation ledger (rea@6.9.0), and reconstruction verifiers
-│   ├── commands/             # 25 handler modules + __init__.py backing 28 top-level subcommands
-│   ├── delivery/             # Installer, harmonizer, onboarder, git topology, checkpoints
+│   ├── commands/             # 27 handler/helper modules + __init__.py backing 29 top-level subcommands
+│   ├── delivery/             # Installer, harmonizer, onboarder, release bumper, git topology, checkpoints
 │   ├── doctor/               # Modular diagnostics & health check runners
 │   ├── gui/                  # Electron CDP WebSocket unlockers & HUD (`assets/` via importlib.resources)
 │   ├── harmonize/            # Legacy `.agent/` -> `.agents/` harmonization engine
-│   ├── hooks/                # 7 hooks.json blocks (8 doctor hook checks; fail-safe runner)
+│   ├── hooks/                # 7 hooks.json blocks (8 doctor hook checks; fail-safe runner, anti-clobber & semaphore)
 │   ├── mutation/             # Atomic file mutation & backup/patch helpers
 │   ├── re/                   # Cleanroom reverse-engineering & REA integration modules
 │   ├── remote/               # ControlMaster SSH multiplexing & compact triage (<2KB)
 │   ├── rules/                # Curated agent governance (Codex v2: PSL-INV-001..008 + PSL-RE-001)
 │   ├── runtime/              # Diagnostics, `healing.py` (`agyis-harness` REA path), hygiene checks, AFF
-│   ├── skills/               # 30 modular skills (`>100` L carry ToC, `<24,576` B cap; `.agents/skills/` symlinks)
+│   ├── skills/               # 32 modular skills (incl. `pause`, `resume`; `>100` L carry ToC, `<24,576` B cap; `.agents/skills/` symlinks)
 │   ├── subagents/            # Routing (`routing.py`), liveness, truth, succession, spec & scaffolding
 │   ├── telemetry/            # Session harvester, hub sync client & systemd user daemon
 │   └── utils/                # Shared helpers including state (`state.py`) & context metadata (`context.py`)
@@ -46,7 +46,7 @@ agyis-harness/
 ├── pipeline/                 # [THE PROJECT] Telemetry extraction & empirical classification lab
 ├── data/                     # [THE PROJECT] Local empirical SQLite telemetry store (`telemetry.db`)
 ├── docs/                     # [THE PROJECT] ADRs (`001–035`), 7 Official Specs, 4 RE Specs, 4 Runbooks, 2 Taxonomy, Archive Index (`0069329`)
-└── tests/                    # [THE PROJECT] 104 test_*.py + 4 e2e/test_*.py hermetic suites
+└── tests/                    # [THE PROJECT] 121 test_*.py + 4 e2e/test_*.py hermetic suites (125 total)
 ```
 
 ### Key Non-Negotiable Architecture Rules

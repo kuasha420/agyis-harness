@@ -15,16 +15,21 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sys
 from typing import List, Optional, Tuple
 
 from harness.subagents.liveness import probe_subagent_liveness
 from harness.subagents.routing import validate_stage_transition_payload
+from harness.utils.context import get_active_brain_dir, is_in_live_home_gemini, is_in_temp_dir
 
 
 def validate_transition_payload_truth(
     workspace: Path,
     payload_path: Optional[Path] = None,
     allow_synthetic: bool = False,
+    *,
+    brain_dir: Optional[Path] = None,
+    conv_id: Optional[str] = None,
 ) -> Tuple[bool, List[str]]:
     """
     Validates on-disk transition payload truth and subagent liveness against schema
@@ -115,11 +120,49 @@ def validate_transition_payload_truth(
     if not allow_synthetic:
         try:
             teamwork_dir = workspace / ".agents" / "teamwork"
+            eff_cid = conv_id.strip() if isinstance(conv_id, str) and conv_id.strip() not in ("", "default") else None
+            eff_brain_root: Optional[Path] = None
+            if brain_dir is not None and str(brain_dir).strip():
+                b_p = Path(brain_dir)
+                eff_brain_root = b_p.parent if (eff_cid and b_p.name == eff_cid) else b_p
+
+            should_probe_native = (eff_brain_root is not None) or (eff_cid is not None)
+            if should_probe_native and eff_brain_root is None and is_in_temp_dir(workspace):
+                if is_in_live_home_gemini(get_active_brain_dir()):
+                    should_probe_native = False
+
+            seen_keys: set[tuple[str, str]] = set()
+            if should_probe_native:
+                native_statuses = probe_subagent_liveness(
+                    workspace_dir=workspace,
+                    brain_dir=eff_brain_root,
+                    conv_id=eff_cid,
+                )
+                for st in native_statuses:
+                    if eff_cid and st.conversation_id == eff_cid and st.progress_file is None:
+                        continue
+                    is_ws_teamwork = bool(st.progress_file and str(workspace) in st.progress_file)
+                    is_native_child = st.progress_file is None
+                    if is_ws_teamwork or is_native_child:
+                        key = (st.conversation_id, st.role)
+                        if key not in seen_keys and st.liveness_state in ("DEAD", "STALE"):
+                            seen_keys.add(key)
+                            errors.append(
+                                f"Delegate subagent '{st.role}' ({st.conversation_id[:8]}) is in {st.liveness_state} state "
+                                f"(age {int(st.heartbeat_age_seconds)}s)"
+                            )
+
             if teamwork_dir.is_dir():
-                statuses = probe_subagent_liveness(workspace_dir=workspace)
-                for st in statuses:
+                tw_statuses = probe_subagent_liveness(
+                    workspace_dir=workspace,
+                    brain_dir=workspace / ".agents" / ".empty_brain_noop",
+                    conv_id=None,
+                )
+                for st in tw_statuses:
                     if st.progress_file and str(workspace) in st.progress_file:
-                        if st.liveness_state in ("DEAD", "STALE"):
+                        key = (st.conversation_id, st.role)
+                        if key not in seen_keys and st.liveness_state in ("DEAD", "STALE"):
+                            seen_keys.add(key)
                             errors.append(
                                 f"Delegate subagent '{st.role}' ({st.conversation_id[:8]}) is in {st.liveness_state} state "
                                 f"(age {int(st.heartbeat_age_seconds)}s)"
@@ -128,3 +171,55 @@ def validate_transition_payload_truth(
             errors.append(f"Failed to probe delegate liveness: {exc}")
 
     return len(errors) == 0, errors
+
+
+def is_pause_gate_active(workspace: Path) -> bool:
+    """Returns True when .agents/artifacts/pause_gate.json exists with valid JSON and active/omitted pause status."""
+    gate_path = Path(workspace) / ".agents" / "artifacts" / "pause_gate.json"
+    if not gate_path.is_file():
+        return False
+    try:
+        data = json.loads(gate_path.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    status = str(data.get("status") or "").strip().lower()
+    return status in ("", "pausing", "paused")
+
+
+def has_active_native_subagents(
+    workspace: Path,
+    *,
+    brain_dir: Optional[Path] = None,
+    conv_id: Optional[str] = None,
+) -> bool:
+    """Returns True when at least one native child subagent for conv_id is currently ACTIVE."""
+    workspace = Path(workspace)
+    eff_cid = conv_id.strip() if isinstance(conv_id, str) and conv_id.strip() not in ("", "default") else None
+    eff_brain_root: Optional[Path] = None
+    if brain_dir is not None and str(brain_dir).strip():
+        b_p = Path(brain_dir)
+        eff_brain_root = b_p.parent if (eff_cid and b_p.name == eff_cid) else b_p
+
+    if eff_brain_root is None and eff_cid is None:
+        return False
+    if eff_brain_root is None and is_in_temp_dir(workspace) and is_in_live_home_gemini(get_active_brain_dir()):
+        return False
+
+    try:
+        statuses = probe_subagent_liveness(
+            workspace_dir=workspace,
+            brain_dir=eff_brain_root,
+            conv_id=eff_cid,
+        )
+    except (OSError, ValueError, TypeError) as exc:
+        sys.stderr.write(f"[AGYIS TRUTH] Warning: Failed probing native subagent liveness: {exc}\n")
+        return False
+
+    for st in statuses:
+        if eff_cid and st.conversation_id == eff_cid and st.progress_file is None:
+            continue
+        if st.progress_file is None and st.liveness_state == "ACTIVE":
+            return True
+    return False

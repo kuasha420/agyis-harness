@@ -29,6 +29,8 @@ import sys
 import tempfile
 from typing import Any, Dict, List, Optional, Tuple
 
+from harness.hooks.anti_clobber import WRITE_CLOBBER_TOOLS, check_anti_clobber
+from harness.hooks.resource_semaphore import evaluate_resource_semaphore
 from harness.hooks.mcp_normalizer import (
     FILE_PATH_TOOLS,
     REA_BYTE_TOOLS,
@@ -634,6 +636,10 @@ def main() -> None:
             m_dec, m_ow, m_rsn = normalize_mcp_tool_call(tool_name, tool_args)
             print(json.dumps({"decision": m_dec, **({"overwrite": m_ow} if m_ow is not None else {}), **({"reason": m_rsn} if m_rsn else {})}))
             return
+        if str(tool_name).strip().lower() in WRITE_CLOBBER_TOOLS:
+            clobber = check_anti_clobber(payload, workspace_dir=ws_dir)
+            print(json.dumps(clobber or {"decision": "allow"}))
+            return
 
         decision, mod_cmd, reason = sanitize_command(raw_cmd, workspace_dir=ws_dir)
         if decision == "deny":
@@ -641,6 +647,13 @@ def main() -> None:
             return
 
         effective_cmd = mod_cmd if mod_cmd is not None else raw_cmd
+        sem_dec, sem_cmd, sem_rsn = evaluate_resource_semaphore(effective_cmd, workspace_dir=ws_dir)
+        if sem_dec == "deny":
+            print(json.dumps({"decision": "deny", "reason": sem_rsn}))
+            return
+        if sem_cmd is not None:
+            effective_cmd, mod_cmd = sem_cmd, sem_cmd
+            reason = "; ".join(p for p in (reason, sem_rsn) if p)
         all_reasons = list(args_reasons) + ([reason] if reason else [])
         if tool_name == "run_command" and (args_modified or mod_cmd is not None):
             print(json.dumps({"decision": "allow", "overwrite": {**sanitized_args, "CommandLine": effective_cmd}, **({"reason": "; ".join(all_reasons)} if all_reasons else {})}))

@@ -3,14 +3,14 @@
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
-# Agyis Harness Project Ledger (`v1.1.0` — Compacted)
+# Agyis Harness Project Ledger (`v1.1.1` — Compacted)
 
 > **Archive (`0069329`)**: [`project-ledger-rc10-historical.md`](../archive/README.md#ledger) · **Baselines**: [`empirical-baselines.md`](empirical-baselines.md) · **ADRs (`001–035`)**: [`docs/adr/README.md`](../adr/README.md)
 
-## 1. Current Release Baseline (`v1.1.0` — 2026-11-27)
-- **Verification**: **2,572 hermetic tests** across `115` `tests/test_*.py` + `4` `tests/e2e/test_*.py` modules (`119` total, `python3 -m harness.cli test`), **4** cleanroom specs (`agyis verify --spec`), `agyis audit sync-check` (`PASS`), and `agyis audit aff` (`100.0/100`, `PSL-INV-008`).
-- **Surface Inventory**: **28** CLI commands (`29` parser entries incl. `changelogs` alias; `router` & `ladder` separate), **30** modular skills (`>100` L ToC, `<24,576` B cap), **8** `agyis_*` personas (`19` canonical tools `<=20` ceiling / `30` `ANTIGRAVITY_PLATFORM_TOOLS`), **7** `hooks.json` blocks (**8** runner checks), **7** official specs, **4** runbooks.
-- **Platform Targets**: Antigravity Desktop `v2.34.0+`, `agy v1.5.15`, `IDE v2.8.0`, `rea@6.9.0` (`255` MCP tools), **Gemini 4** (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`/`1M` scaled runway, `70%`/`90%`, `80`-step soft horizon).
+## 1. Current Release Baseline (`v1.1.1` — 2026-11-27)
+- **Verification**: **2,623 hermetic tests** across `121` `tests/test_*.py` + `4` `tests/e2e/test_*.py` modules (`125` total, `python3 -m harness.cli test`), **4** cleanroom specs (`agyis verify --spec`), `agyis audit sync-check` (`PASS`), and `agyis audit aff` (`100.0/100`, `PSL-INV-008`).
+- **Surface Inventory**: **29** CLI commands (`30` parser entries incl. `release` & `changelogs` alias; `router` & `ladder` separate), **32** modular skills (incl. `pause` & `resume`; `>100` L ToC, `<24,576` B cap), **8** `agyis_*` personas (`19` canonical tools `<=20` ceiling / `30` `ANTIGRAVITY_PLATFORM_TOOLS`), **7** `hooks.json` blocks (**8** runner checks), **7** official specs, **4** runbooks.
+- **Platform Targets**: Antigravity Desktop `v2.34.0+`, `agy v1.5.15`, `IDE v2.8.0`, `rea@6.9.0` (`255` MCP tools), **Gemini 4** (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`/`1M` scaled runway, `70%`/`90%`, scaled step horizon `80`/`160`/`320`).
 - **Single-Source Hygiene**: `.agents/skills/` and `.agents/agents/` symlink to `../../harness/` (`~4,500` tok/turn saved); active hooks state defaults to `/tmp/agyis_harness_state_{uid}` (`AGYIS_HARNESS_STATE_DIR`).
 
 ## 2. Compacted Milestone Chronology (Phases 1–37 -> `v1.1.0`)

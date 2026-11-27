@@ -9,7 +9,7 @@
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Scope**: Project-Internal Test Standards & Product-Delivered Testing Invariants  
-**Last Updated**: 2026-11-27 (`v1.1.0`)  
+**Last Updated**: 2026-11-27 (`v1.1.1`)  
 
 ---
 
@@ -37,7 +37,7 @@ All unit, integration, and replay tests inside `tests/` must adhere to five inva
 - Fixtures must allocate isolated temporary directories (`tempfile.TemporaryDirectory()`) and clean up on teardown.
 
 ### B. The Sub-Second Benchmark Invariant (`PSL-INV-001`)
-- Individual component test modules must execute cleanly in **under 1.0 second**, while the macro repository suite across **115** `tests/test_*.py` + **4** `tests/e2e/test_*.py` modules (`119` total, **2,572** tests) executes hermetically (`./agyis test` or `python3 -m harness.cli test`) with zero external service dependencies.
+- Individual component test modules must execute cleanly in **under 1.0 second**, while the macro repository suite across **121** `tests/test_*.py` + **4** `tests/e2e/test_*.py` modules (`125` total, **2,623** tests) executes hermetically (`./agyis test` or `python3 -m harness.cli test`) with zero external service dependencies.
 - Unbounded sleeps, slow model invocations, and whole-filesystem sweeps are strictly prohibited in unit and integration tests.
 - Hook dispatch overhead remains sub-millisecond in steady state (verified at `<0.25 ms` / `241.3 us` on `50 KB` payloads for the 2 KB output compactor).
 
@@ -51,13 +51,13 @@ Every lifecycle hook must be validated against Antigravity's camelCase protojson
 - Defensive hooks include regression replay cases derived from historical failure trajectories recorded in `data/telemetry.db` (e.g., [test_command_safety.py](../../tests/test_command_safety.py) replays the PEP 701 f-string syntax trap to guarantee CPython >= 3.12 sanitization).
 
 ### E. Suite Layout & Execution Commands
-The `tests/` tree comprises **115** `tests/test_*.py` + **4** `tests/e2e/test_*.py` hermetic modules (`119` total, **2,572** tests) covering hooks, CLI commands, subagent contracts, delivery, cleanroom verification, and empirical pipeline stages (representative suites):
+The `tests/` tree comprises **121** `tests/test_*.py` + **4** `tests/e2e/test_*.py` hermetic modules (`125` total, **2,623** tests) covering hooks, CLI commands, subagent contracts, delivery, cleanroom verification, and empirical pipeline stages (representative suites):
 ```text
 tests/
 ├── test_agent_scaffold.py           # Agent scaffolding, workspace discovery, YAML frontmatter
 ├── test_anti_drift.py               # Plan boundary enforcement, native plan-mode lock, exemptions
 ├── test_anti_loop.py                # Repeat thresholds, reactive wait invariant, Issue #41 manage_task advisory
-├── test_cli.py                      # 28-command CLI dispatcher, subparser routing, lazy pipeline loading
+├── test_cli.py                      # 29-command CLI dispatcher, subparser routing, lazy pipeline loading
 ├── test_command_safety.py           # Dangerous patterns, TUI blocks, hermetic CPython, grep rewrite
 ├── test_command_safety_remote.py    # Remote grep rewrite, ControlMaster multiplexing, SSH timeouts
 ├── test_completion_fence.py         # Decoupled code_dirty/spec_dirty gating, exemptions, 2-block safety valve

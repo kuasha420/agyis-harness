@@ -130,6 +130,12 @@ def _is_pre_tool_denied_by_guards(
     except Exception as exc:
         sys.stderr.write(f"[AGYIS FENCE] Warning: PreToolUse drift precheck error: {exc}\n")
     try:
+        from harness.hooks.anti_clobber import check_anti_clobber
+        if check_anti_clobber(payload, cwd=cwd) is not None:
+            return True
+    except Exception as exc:
+        sys.stderr.write(f"[AGYIS FENCE] Warning: PreToolUse anti-clobber precheck error: {exc}\n")
+    try:
         from harness.hooks.command_safety_hook import DANGEROUS_PATTERNS, INTERACTIVE_COMMANDS, check_pause_safety
         ws_dir = Path(cwd) if cwd and Path(cwd).is_dir() else None
         p_dec, _ = check_pause_safety(tool_name, tool_args, workspace_dir=ws_dir)
@@ -142,6 +148,9 @@ def _is_pre_tool_denied_by_guards(
                     return True
                 first_tok = cmd.split()[0].split("/")[-1]
                 if first_tok in INTERACTIVE_COMMANDS:
+                    return True
+                from harness.hooks.resource_semaphore import check_memory_guard
+                if check_memory_guard(cmd, workspace_dir=ws_dir) is not None:
                     return True
     except Exception as exc:
         sys.stderr.write(f"[AGYIS FENCE] Warning: PreToolUse safety precheck error: {exc}\n")

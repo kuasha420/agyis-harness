@@ -6,7 +6,7 @@
 # Agyis Harness — Canonical User & Operator Guide
 
 **Target Audience**: Engineers, Operators, and Teams Running Google Antigravity™  
-**Version**: `1.1.0` (`2026-11-27`)  
+**Version**: `1.1.1` (`2026-11-27`)  
 **Primary CLI Entrypoint**: `agyis` (backward-compatible alias: `psl`)  
 
 ---
@@ -62,20 +62,20 @@ For detailed human workflows, see:
 
 ---
 
-## 4. Consolidated 28-Command CLI Overview
+## 4. Consolidated 29-Command CLI Overview
 
-`agyis` (legacy alias `psl`) registers **28** top-level subcommands (`router` and `ladder` registered separately; `changelog` also accepts `changelogs`):
+`agyis` (legacy alias `psl`) registers **29** top-level subcommands (`30` parser entries including `release` & `changelogs` alias; `router` and `ladder` registered separately):
 
-| Domain | Top-Level Commands (`28`) | Primary Focus |
+| Domain | Top-Level Commands (`29`) | Primary Focus |
 | :--- | :--- | :--- |
 | **Diagnostics & Testing** | `doctor`, `test`, `status` | Host matrix/port audits, hermetic & diff-aware testing, live dashboard |
 | **Lifecycle Hooks** | `hook` | Direct protojson execution of lifecycle guards |
 | **Cockpit & Subagent Routing** | `cockpit`, `router`, `ladder`, `checkpoint`, `subagents` | Flight direction (`A`–`L`), checkpoints, liveness & context gauges |
 | **Workspace & Onboarding** | `init`, `harmonize`, `onboard`, `clean`, `ext` | Scaffolding, `.agent/` pruning, cache/worktree cleanup, `.agents/commands/` |
-| **Governance & Discovery** | `rules`, `skills`, `agents` | Rule lint/dedup, 30 modular skills, 8 `agyis_*` personas |
+| **Governance & Discovery** | `rules`, `skills`, `agents` | Rule lint/dedup, 32 modular skills (incl. `pause`, `resume`), 8 `agyis_*` personas |
 | **Telemetry & AFF Audits** | `audit`, `sync`, `auth` | Transcript mining, AFF fitness checks, hub sync & systemd daemon |
 | **Cleanroom & Reverse Eng.** | `verify`, `re` | `docs/specs/` claim verification (`--spec`), ledgers, `.dirtyroom/` Ghidra |
-| **Delivery, GUI & Releases** | `install`, `uninstall`, `gui`, `remote`, `release-notes`, `changelog` | Global install, Electron CDP HUD, ControlMaster SSH, changelogs |
+| **Delivery, GUI & Releases** | `install`, `uninstall`, `gui`, `remote`, `release`, `release-notes`, `changelog` | Global install, Electron CDP HUD, ControlMaster SSH, atomic release bump & changelogs |
 
 Authoritative flags, sub-actions, and exit codes live in **[cli-palette.md](official-specs/cli-palette.md)** and **[platform-surface-mapping.md](official-specs/platform-surface-mapping.md)**.
 
@@ -84,10 +84,10 @@ Authoritative flags, sub-actions, and exit codes live in **[cli-palette.md](offi
 ## 5. Lifecycle Hooks & Runtime State
 
 Agyis registers **7** hook blocks in `hooks.json` covering **8** runner targets verified by `agyis doctor`:
-- `PreToolUse`: `command-safety` (CPython `>=3.12`, eager/lazy MCP normalization, `/swarm` pause guard), `anti-loop`, `anti-drift` (plan boundaries, Auditor write-block, Q5 read-only shell guard), `token-proximity`, and `verification-fence` dirty tracking.
+- `PreToolUse`: `command-safety` (CPython `>=3.12`, eager/lazy MCP normalization, `/swarm` pause guard, `#93` anti-clobber guard, `#67` memory/concurrency semaphore), `anti-loop`, `anti-drift` (plan boundaries, `#93` anti-clobber, Auditor write-block, Q5 read-only shell guard), `token-proximity`, and `verification-fence` dirty tracking.
 - `PostToolUse`: `compactor` (`overwriteResult` on `>2KB` succeeding `run_command` & `>32KB` `read_file`, 100% verbatim on errors) and `post-verification-fence`.
-- `PreInvocation`: `pre-invocation` (scaled `256k`/`512k`/`1M` runway, `80`-step horizon, and `systemMessage` advisories + checkpoint auto-save).
-- `Stop`: `verification-fence` (`code_dirty` vs `spec_dirty` clearance with `continuationActive` awareness & 2-block anti-deadlock valve).
+- `PreInvocation`: `pre-invocation` (scaled `256k`/`512k`/`1M` runway, window-scaled checkpoint step horizon `80`/`160`/`320`, and `systemMessage` advisories + checkpoint auto-save).
+- `Stop`: `verification-fence` (`code_dirty` vs `spec_dirty` clearance with `continuationActive` awareness, native `invoke_subagent` Stop-Gate truth & 2-block anti-deadlock valve).
 
 Hook state persists under `/tmp/agyis_harness_state_{uid}` by default (override via `AGYIS_HARNESS_STATE_DIR` or `PSL_HARNESS_STATE_DIR`). For JSON payload schemas and event contracts, see **[lifecycle-hooks.md](official-specs/lifecycle-hooks.md)** and **[platform-surface-mapping.md](official-specs/platform-surface-mapping.md)**.
 

@@ -23,7 +23,7 @@
   },
   "workspace_inventory": {
     "skills": {
-      "count": 30,
+      "count": 32,
       "names": [
         "agent-builder",
         "audio-ops",
@@ -35,6 +35,7 @@
         "graceful-parking",
         "media-ops",
         "milestone-handoff",
+        "pause",
         "powerloss-resume",
         "psl-audit-toolkit",
         "psl-harmonize",
@@ -50,6 +51,7 @@
         "psl-test-python",
         "re-ops",
         "remote-ops",
+        "resume",
         "sec-forensics",
         "storage-ops",
         "subagent-ladder",

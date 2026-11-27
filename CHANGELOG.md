@@ -17,6 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.1] - 2026-11-27
+
+### Features & Architecture
+- feat(release,ci,docs): add unified agyis release bump/check CLI, sync-check uplift & SSOT convergence
+- feat(skills): add paired /pause and /resume skills with live-first 3-branch triage
+- feat(hooks): add anti-clobber guard (#93), memory/concurrency semaphore (#67), scaled horizon & subagent stop-gate truth
+
+---
+
 ## [1.1.0] - 2026-11-27
 
 ### Features & Architecture
@@ -580,7 +589,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release candidate for Agyis Harness for Google Antigravity™.
 - Autonomous agent runtime harness, empirical audit telemetry pipeline, and lifecycle hooks immune system.
 
-[Unreleased]: https://github.com/kuasha420/agyis-harness/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/kuasha420/agyis-harness/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/kuasha420/agyis-harness/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc14...v1.0.0
 [1.0.0-rc14]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0-rc13...v1.0.0-rc14

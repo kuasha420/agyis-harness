@@ -39,8 +39,10 @@ from harness.trajectory import (
     SOFT_CHECKPOINT_STEP_ADVISORY,
     clear_locked_conversations,
     extract_context_window_from_protobuf_metadata,
+    extract_payload_context_window,
     extract_tokens_from_protobuf_metadata,
     get_conversations_dir,
+    get_scaled_step_horizon,
     get_scaled_thresholds,
     get_urgency_tier,
     infer_model_context_window,
@@ -53,6 +55,7 @@ from harness.trajectory import (
     record_locked_conversation,
     unlock_conversation,
 )
+from harness.utils.state import atomic_write_json, get_state_dir, sanitize_conv_id
 
 LOCK_EXPIRY_SECONDS: float = 2.0
 
@@ -343,9 +346,10 @@ def format_terminal_gauge(
     else:
         color, status = styles["SAFE"], "SAFE"
 
+    horizon = get_scaled_step_horizon(denom)
     horizon_str = ""
-    if step_count is not None and step_count >= SOFT_CHECKPOINT_STEP_ADVISORY and _normalize_role_str(role) == ROLE_DEEP_EXECUTION:
-        horizon_str = f" [CHECKPOINT HORIZON: {step_count}/{SOFT_CHECKPOINT_STEP_ADVISORY} STEPS]"
+    if step_count is not None and step_count >= horizon and _normalize_role_str(role) == ROLE_DEEP_EXECUTION:
+        horizon_str = f" [CHECKPOINT HORIZON: {step_count}/{horizon} STEPS]"
 
     tok_prefix = "~" if is_provisional else ""
     return f"{color}[AGYIS TOKEN GAUGE]{reset} [{bar}] {tok_prefix}{tokens:,} / {denom:,} ({percentage:.1f}%){vel_badge} - {color}{status}{reset}{horizon_str}"
@@ -356,6 +360,73 @@ def render_terminal_gauge(tokens: int) -> str:
     return format_terminal_gauge(tokens, CONTEXT_WINDOW_TOKENS)
 
 
+def _should_emit_horizon_gauge(
+    conv_id: Optional[str],
+    metrics: Any,
+    step_count: int,
+    horizon: int,
+    *,
+    state_dir: Optional[Path] = None,
+    checkpoint_index: Optional[int] = None,
+) -> bool:
+    """Gates horizon-only stderr gauges via CID-scoped .gauge_horizon_{cid}.json cooldown."""
+    if not conv_id or conv_id == "default":
+        return True
+    target_dir: Optional[Path] = None
+    if state_dir is not None:
+        target_dir = Path(state_dir)
+    elif (os.environ.get("AGYIS_HARNESS_STATE_DIR") or os.environ.get("PSL_HARNESS_STATE_DIR") or "").strip():
+        target_dir = get_state_dir()
+    elif getattr(metrics, "total_steps", 0) > 0:
+        target_dir = get_state_dir()
+    else:
+        from harness.utils.context import get_active_brain_dir
+        if (get_active_brain_dir() / conv_id).is_dir():
+            target_dir = get_state_dir()
+    if target_dir is None:
+        return True
+
+    horizon_cadence = max(25, horizon // 4)
+    cp_idx = checkpoint_index if checkpoint_index is not None else int(getattr(metrics, "checkpoint_index", 0) or 0)
+    gauge_file = target_dir / f".gauge_horizon_{sanitize_conv_id(conv_id)}.json"
+    existing: Dict[str, Any] = {}
+    if gauge_file.is_file():
+        try:
+            parsed = json.loads(gauge_file.read_text(encoding="utf-8"))
+            if isinstance(parsed, dict):
+                existing = parsed
+        except (OSError, json.JSONDecodeError, ValueError, TypeError):
+            existing = {}
+
+    prev_cp = existing.get("checkpoint")
+    prev_horizon = existing.get("horizon")
+    prev_step = existing.get("last_step")
+    same_window = (
+        isinstance(prev_cp, int)
+        and prev_cp == cp_idx
+        and isinstance(prev_horizon, int)
+        and prev_horizon == horizon
+        and isinstance(prev_step, int)
+    )
+    if same_window and (step_count - prev_step) < horizon_cadence:
+        return False
+
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(
+            gauge_file,
+            {
+                "session_id": conv_id,
+                "checkpoint": cp_idx,
+                "horizon": horizon,
+                "last_step": step_count,
+            },
+        )
+    except OSError:
+        pass
+    return True
+
+
 def _evaluate_and_emit_gauge(
     metrics: Any,
     vel: Dict[str, Any],
@@ -364,18 +435,33 @@ def _evaluate_and_emit_gauge(
     role: Optional[str],
     emit_stderr: bool = True,
     out_err: Optional[TextIO] = None,
+    conv_id: Optional[str] = None,
+    state_dir: Optional[Path] = None,
+    checkpoint_index: Optional[int] = None,
 ) -> bool:
     """Formats and emits the ANSI token gauge when runway, horizon, or burn-rate thresholds trigger."""
     tokens = metrics.tokens or int(vel.get("tokens") or 0)
     burn_rate = float(vel.get("burn_rate_tokens_per_min", 0.0) or 0.0)
+    horizon = get_scaled_step_horizon(metrics.max_context_tokens)
     horizon_active = (
         step_count is not None
-        and step_count >= SOFT_CHECKPOINT_STEP_ADVISORY
+        and step_count >= horizon
         and _normalize_role_str(role) == ROLE_DEEP_EXECUTION
     )
+    token_pressure = tokens >= metrics.amber_threshold
     rapid_burn = burn_rate >= MAX_SAFE_BURN_RATE_PER_MIN
-    if not (tokens >= metrics.amber_threshold or horizon_active or rapid_burn):
+    if not (token_pressure or horizon_active or rapid_burn):
         return False
+    if horizon_active and not token_pressure and not rapid_burn and emit_stderr and step_count is not None:
+        if not _should_emit_horizon_gauge(
+            conv_id,
+            metrics,
+            step_count,
+            horizon,
+            state_dir=state_dir,
+            checkpoint_index=checkpoint_index,
+        ):
+            return False
 
     target_err = out_err if out_err is not None else sys.stderr
     gauge = format_terminal_gauge(
@@ -407,6 +493,7 @@ def check_token_proximity(
     emit_stderr: bool = True,
     step_count: Optional[int] = None,
     role: Optional[str] = None,
+    state_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Evaluates token proximity, checkpoint steps, and burn rate velocity via SSOT."""
     metrics = read_db_trajectory_state(conversation_id, db_dir=db_dir)
@@ -423,6 +510,8 @@ def check_token_proximity(
         step_count=eff_checkpoint_steps,
         role=role,
         emit_stderr=emit_stderr,
+        conv_id=conversation_id,
+        state_dir=state_dir,
     )
     return {
         "decision": "allow",
@@ -448,7 +537,11 @@ def _extract_payload_step(parsed: Dict[str, Any]) -> Optional[int]:
     return None
 
 
-def run_token_proximity_guard(payload: Any, stderr: Optional[TextIO] = None) -> Dict[str, Any]:
+def run_token_proximity_guard(
+    payload: Any,
+    stderr: Optional[TextIO] = None,
+    state_dir: Optional[Path] = None,
+) -> Dict[str, Any]:
     """PreToolUse dispatcher evaluating checkpoint-scoped tokens, velocity, and step horizon."""
     if isinstance(payload, str):
         try:
@@ -462,12 +555,30 @@ def run_token_proximity_guard(payload: Any, stderr: Optional[TextIO] = None) -> 
 
     conv_id = str(parsed.get("conversationId") or parsed.get("conversation_id") or "default")
     metrics = read_db_trajectory_state(conv_id)
+    payload_max_ctx = extract_payload_context_window(parsed)
+    has_explicit_payload_mct = any(
+        parsed.get(k) is not None for k in ("maxContextTokens", "max_context_tokens")
+    )
+    if payload_max_ctx and (has_explicit_payload_mct or not metrics.has_explicit_max_context):
+        amber_t, red_t = get_scaled_thresholds(payload_max_ctx)
+        metrics.max_context_tokens = payload_max_ctx
+        metrics.amber_threshold = amber_t
+        metrics.red_threshold = red_t
+        metrics.compaction_threshold = red_t
     vel = _metrics_to_velocity_dict(metrics, conv_id)
     raw_step = _extract_payload_step(parsed)
     eff_checkpoint_steps = (
         max(0, raw_step - metrics.checkpoint_start_idx) if (raw_step is not None and metrics.checkpoint_start_idx > 0)
         else (metrics.checkpoint_steps if metrics.total_steps > 0 else raw_step)
     )
+    raw_cp_idx = parsed.get("checkpoint_index") if "checkpoint_index" in parsed else parsed.get("checkpointIndex")
+    eff_cp_idx: Optional[int] = None
+    if metrics.total_steps > 0:
+        eff_cp_idx = metrics.checkpoint_index
+    elif isinstance(raw_cp_idx, (int, float)):
+        eff_cp_idx = int(raw_cp_idx)
+    elif isinstance(raw_cp_idx, str) and raw_cp_idx.strip().isdigit():
+        eff_cp_idx = int(raw_cp_idx.strip())
     explicit_role = (
         parsed.get("role")
         or parsed.get("agent_role")
@@ -494,6 +605,9 @@ def run_token_proximity_guard(payload: Any, stderr: Optional[TextIO] = None) -> 
         role=role,
         emit_stderr=True,
         out_err=stderr,
+        conv_id=conv_id,
+        state_dir=state_dir,
+        checkpoint_index=eff_cp_idx,
     )
     return {"decision": "allow"}
 

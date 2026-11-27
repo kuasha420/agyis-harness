@@ -3,6 +3,10 @@
   "name": "psl-runtime-compatibility-matrix",
   "version": "1.0.0",
   "description": "Baseline tool versions and runtime guarantees required for reliable autonomous SWE agent execution.",
+  "system_thresholds": {
+    "min_free_ram_mb": 1536,
+    "semaphore_wait_seconds": 300
+  },
   "tiers": {
     "tier_1_languages": {
       "description": "Core language runtimes and package managers",

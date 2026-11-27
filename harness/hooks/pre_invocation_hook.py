@@ -55,6 +55,7 @@ from harness.trajectory import (
     ROLE_FORENSIC_AUDITOR,
     ROLE_SWARM_ORCHESTRATOR,
     SOFT_CHECKPOINT_STEP_ADVISORY,
+    get_scaled_step_horizon,
     get_scaled_thresholds,
     infer_model_context_window,
     normalize_cid,
@@ -62,6 +63,7 @@ from harness.trajectory import (
     read_db_trajectory_state,
     resolve_checkpoint_step_count,
 )
+from harness.utils.state import atomic_write_json, sanitize_conv_id
 
 DEFAULT_COMPACTION_ADVISORY_THRESHOLD: int = 230_000
 DEFAULT_SQLITE_TIMEOUT: float = 0.5
@@ -200,6 +202,55 @@ def _parse_payload(payload_str: Union[str, bytes, bytearray, Dict[str, Any]]) ->
         return {}
 
 
+def _should_emit_horizon_advisory(
+    state_dir: Path,
+    conv_id: str,
+    cp_idx: int,
+    step_count: int,
+    horizon: int,
+    horizon_cadence: int,
+) -> bool:
+    """Gates checkpoint horizon advisories through a CID-scoped cooldown state file."""
+    alert_path = state_dir / f".horizon_alert_{sanitize_conv_id(conv_id)}.json"
+    existing: Dict[str, Any] = {}
+    if alert_path.is_file():
+        try:
+            parsed = json.loads(alert_path.read_text(encoding="utf-8"))
+            if isinstance(parsed, dict):
+                existing = parsed
+        except (OSError, json.JSONDecodeError, ValueError, TypeError):
+            existing = {}
+
+    prev_cp = existing.get("checkpoint")
+    prev_horizon = existing.get("horizon")
+    prev_step = existing.get("last_step")
+    same_window = (
+        isinstance(prev_cp, int)
+        and prev_cp == cp_idx
+        and isinstance(prev_horizon, int)
+        and prev_horizon == horizon
+        and isinstance(prev_step, int)
+    )
+    if same_window and (step_count - prev_step) < horizon_cadence:
+        return False
+
+    try:
+        state_dir.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(
+            alert_path,
+            {
+                "session_id": conv_id,
+                "checkpoint": cp_idx,
+                "horizon": horizon,
+                "last_step": step_count,
+                "timestamp": time.time(),
+            },
+        )
+    except OSError:
+        pass
+    return True
+
+
 def evaluate_pre_invocation(
     payload_str: Union[str, bytes, bytearray, Dict[str, Any]] = "",
     threshold: Optional[int] = None,
@@ -270,7 +321,12 @@ def evaluate_pre_invocation(
 
         state_dir = resolve_cid_state_dir(conv_id, eff_ws, payload) or (brain_path / ".agyis" if brain_path else None)
         sticky = load_sticky_role_state(state_dir, conv_id)
-        cp_idx = db_metrics.checkpoint_index if db_metrics else 0
+        payload_cp_idx = _parse_int_field(payload, ("checkpoint_index", "checkpointIndex"))
+        cp_idx = (
+            db_metrics.checkpoint_index
+            if (db_metrics and db_metrics.total_steps > 0)
+            else (payload_cp_idx if payload_cp_idx is not None else 0)
+        )
 
         is_post_compaction = bool(
             _has_native_compaction_marker(prompt_text)
@@ -338,9 +394,19 @@ def evaluate_pre_invocation(
         elif has_explicit_step and step_count == 0:
             inject_steps.append({"systemMessage": {"systemMessage": build_role_persona_prompt(role), "metadata": {}}})
         elif has_explicit_step and step_count is not None and step_count > 0:
-            if step_count >= SOFT_CHECKPOINT_STEP_ADVISORY and (step_count == SOFT_CHECKPOINT_STEP_ADVISORY or step_count % cadence == 0):
+            horizon = get_scaled_step_horizon(max_ctx)
+            horizon_cadence = max(25, horizon // 4)
+            emit_horizon = False
+            if step_count >= horizon:
+                if conv_id == "default" or state_dir is None:
+                    emit_horizon = (step_count == horizon or step_count % cadence == 0)
+                else:
+                    emit_horizon = _should_emit_horizon_advisory(
+                        state_dir, conv_id, cp_idx, step_count, horizon, horizon_cadence
+                    )
+            if emit_horizon:
                 reanchor = build_role_reanchor_advisory(role, step_count, cadence)
-                soft_adv = f"[AGYIS CHECKPOINT HORIZON ADVISORY: Checkpoint step {step_count}/{SOFT_CHECKPOINT_STEP_ADVISORY} — consider verifying diff & checkpoints]"
+                soft_adv = f"[AGYIS CHECKPOINT HORIZON ADVISORY: Checkpoint step {step_count}/{horizon} — consider verifying diff & checkpoints]"
                 inject_steps.append({"systemMessage": {"systemMessage": f"{soft_adv}\n\n{reanchor}", "metadata": {}}})
             elif step_count % cadence == 0:
                 inject_steps.append({"systemMessage": {"systemMessage": build_role_reanchor_advisory(role, step_count, cadence), "metadata": {}}})

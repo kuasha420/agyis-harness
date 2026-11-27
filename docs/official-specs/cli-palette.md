@@ -3,20 +3,20 @@
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
-# Official Specification: Consolidated 28-Subparser CLI Palette
+# Official Specification: Consolidated 29-Subparser CLI Palette
 
 **Document**: Canonical CLI Subcommand Palette & Reference Guide  
 **Project**: Agyis Harness for Google Antigravity™ (`agyis-harness`)  
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Binary Entrypoint**: `agyis` (Primary) / `psl` (Deprecated Alias) / `python3 -m harness.cli`  
-**Last Updated**: 2026-11-27 (`v1.1.0`)  
+**Last Updated**: 2026-11-27 (`v1.1.1`)  
 
 ---
 
 ## 1. Executive Overview
 
-The unified developer CLI (`agyis` or `python3 -m harness.cli`, with backward-compatible alias `psl`) registers **28 top-level subparsers** (`router` and `ladder` registered as sibling subparsers; `changelog` carries parser alias `changelogs`) across `harness/commands/`, `harness/delivery/`, `harness/subagents/`, `harness/remote/`, and `harness/telemetry/`. Per ADR-014 (Product vs. Project Bifurcation), core product CLI commands execute hermetically with zero mandatory third-party Python dependencies.
+The unified developer CLI (`agyis` or `python3 -m harness.cli`, with backward-compatible alias `psl`) registers **29 top-level subparsers** (`30` registered parser keys including `changelogs` alias; `router` and `ladder` registered as sibling subparsers) across `harness/commands/`, `harness/delivery/`, `harness/subagents/`, `harness/remote/`, and `harness/telemetry/`. Per ADR-014 (Product vs. Project Bifurcation), core product CLI commands execute hermetically with zero mandatory third-party Python dependencies.
 
 > [!NOTE]
 > **CLI Nomenclature & Deprecation Lifecycle**: `agyis` is the primary executable. The legacy command `psl` is preserved as a backward-compatible alias (`DeprecationWarning: 'psl' is deprecated and will be removed in 3 months. Use 'agyis' instead.` on `stderr`).
@@ -28,7 +28,7 @@ agyis [-h] [-v]
   ├── test          Run hermetic test suites with diff-aware filtering & benchmark timing
   ├── audit         Run empirical telemetry laboratory extraction, certification & AFF audit
   ├── rules         Audit, deduplicate, and harmonize global & workspace agent rule files
-  ├── skills        List, inspect, synchronize, and deduplicate modular product skills (30)
+  ├── skills        List, inspect, synchronize, and deduplicate modular product skills (32)
   ├── agents        Catalog, inspect, create, validate, and rehydrate specialist subagents (8)
   ├── subagents     List active subagents, liveness status, and live context health gauges
   ├── status        Print harness health, active hooks (7 blocks / 8 checks), horizon & telemetry
@@ -42,6 +42,7 @@ agyis [-h] [-v]
   ├── uninstall     Uninstall Agyis harness global plugin cleanly without collateral damage
   ├── verify        Formally verify cleanroom specifications and REA reconstruction manifests (ADR-028)
   ├── gui           Introspect and control Antigravity Electron GUI via CDP WebSocket (ADR-014)
+  ├── release       Unified atomic SemVer release bump (`bump`) and parity verifier (`check`)
   ├── release-notes Parse conventional commits and generate structured release notes
   ├── changelog     Generate, update, or backfill Keep-a-Changelog entries (alias: changelogs)
   ├── checkpoint    Carrier-grade pre-compaction state capture & session succession (ADR-031A, ADR-033)
@@ -90,7 +91,7 @@ agyis [-h] [-v]
 
 ### 3. `test`
 * **Syntax**: `agyis test [-v] [-s <dir>] [--diff] [--branch <ref>] [--affected] [--pkg <name>] [--full] [--harmonize] [--dry-run] [--mutation] [--json]`
-* **Purpose**: Executes diff-aware or full project test suites (`--full` macro sweep across **115** `tests/test_*.py` + **4** `tests/e2e/test_*.py` modules = `119` total, **2,572** tests, while targeted component modules satisfy the `<1.0s` sub-second benchmark invariant) and clears verification fence flags on success.
+* **Purpose**: Executes diff-aware or full project test suites (`--full` macro sweep across **121** `tests/test_*.py` + **4** `tests/e2e/test_*.py` modules = `125` total, **2,623** tests, while targeted component modules satisfy the `<1.0s` sub-second benchmark invariant) and clears verification fence flags on success.
 * **Flags**:
   - `-v`, `--verbose`: Enables detailed individual test case reporting.
   - `-s`, `--start-dir <path>`: Directory containing test suites (defaults to `tests/`).
@@ -139,7 +140,7 @@ agyis [-h] [-v]
   - `--prune-duplicates`: Prunes redundant workspace skills that shadow global plugin skills (saving ~4,500 tokens/turn).
   - `--dry-run`: Simulates pruning duplicate skills without modifying disk.
   - `-s`, `--stack <stk>`: Tailors deployment to a specific stack preset (`python`, `typescript`, `rust`, `go`, `systems`, `shell`, `auto`). `--stack auto` detects stack from repository manifests (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`).
-  - `-g`, `--group <grp>`: Syncs a functional group preset (`stack`, `testing`, `runners`, `ops`, `workstation`, `workflow`, `ladder`, `resilience`, `continuity`, `re`, `cleanroom`).
+  - `-g`, `--group <grp>`: Syncs a functional group preset (`stack`, `testing`, `runners`, `ops`, `workstation`, `workflow`, `ladder`, `resilience`, `continuity`, `pause-resume`, `re`, `cleanroom`).
   - `--skills <list>`: Comma-separated list of specific skill names to synchronize.
   - `--override`: Overwrites existing local skill files even if identical.
   - `--no-dedup`: Disables deduplication when syncing skills.
@@ -311,7 +312,14 @@ agyis [-h] [-v]
   - `--dedup`: Harmonizes duplicate rule declarations to eliminate redundant prompt context.
   - `--dry-run`, `-w|--workspace`, `--config-dir`, `--json`: Simulate without disk mutation, target specific workspace/config paths, or emit JSON output.
 
-### 20. `release-notes`
+### 20. `release`
+* **Syntax**: `agyis release {bump,check} [args]`
+* **Purpose**: Unified single-command SemVer release bump orchestrator and cross-surface parity verifier (`harness/commands/release.py`, `harness/delivery/release_bump.py`).
+* **Subcommands**:
+  - `bump <version> [--dry-run|--apply] [--skip-og] [--skip-lock] [--skip-changelog] [--date <YYYY-MM-DD>] [--repo-url <url>] [-w|--workspace <path>] [--json]`: Plans (`--dry-run`, default) or atomically applies (`--apply`) a SemVer release bump across `pyproject.toml`, `harness/__init__.py`, `plugin.json`, `package.json`, `uv.lock`, `CHANGELOG.md`, `og-overlay.svg` / OG raster recomposition, website routes, and docs.
+  - `check [--version <ver>] [--include-site] [-w|--workspace <path>] [--json]`: Verifies SemVer release parity across manifests, `uv.lock`, OG SVG, `CHANGELOG.md`, docs, and (with `--include-site`) all `website/**/*.html` routes.
+
+### 21. `release-notes`
 * **Syntax**: `agyis release-notes [--tag <tag>] [--base <ref>] [--rev <ref>] [-o|--output <file>] [--gh-release <tag>] [--title <title>] [--prerelease|--no-prerelease] [-w|--workspace <path>] [--repo-url <url>] [--json]`
 * **Purpose**: Automated conventional commit parser and publication-grade release notes generator (Phase 15).
 * **Flags**:
@@ -320,11 +328,11 @@ agyis [-h] [-v]
   - `--gh-release`, `--title`, `--prerelease` / `--no-prerelease`: Create or update GitHub release via `gh` CLI.
   - `-w|--workspace`, `--repo-url`, `--json`: Repository path, compare link URL override, and JSON output.
 
-### 21. `changelog` (Alias: `changelogs`)
+### 22. `changelog` (Alias: `changelogs`)
 * **Syntax**: `agyis changelog [--tag|--version <ver>] [--base <ref>] [--rev <ref>] [--date <YYYY-MM-DD>] [-f|--file <path>] [--write] [--backfill] [--style {canonical,keepachangelog}] [-w|--workspace <path>] [--repo-url <url>] [--json]`
 * **Purpose**: Native Keep-a-Changelog generator and idempotent `CHANGELOG.md` manager.
 
-### 22. `checkpoint`
+### 23. `checkpoint`
 * **Syntax**: `agyis checkpoint [--plan <path>] [--out <path>] [-w|--workspace <path>] [--role <role>] [--trigger-tokens <N>] [--max-age-mins <N>] [--json] [--brain-dir <path>] {status,generate,create,verify,prune}`
 * **Purpose**: Carrier-grade pre-compaction state capture, active plan synchronization, and session succession (ADR-031A, ADR-033).
 * **Subcommands & Key Flags**:
@@ -333,7 +341,7 @@ agyis [-h] [-v]
   - `verify [--max-age-mins <N>]`: Asserts `compaction_checkpoint_latest.md` exists and is within `--max-age-mins` (default `60`).
   - `prune [--retention|--keep <N>] [--dry-run]`: Retains top `N` historical checkpoints (default `5`) while preserving `compaction_checkpoint_latest.md`.
 
-### 23. `cockpit`
+### 24. `cockpit`
 * **Syntax**: `agyis cockpit [-w|--workspace <path>] [--json] {status,route,verify}`
 * **Purpose**: Standardized Cockpit Flight Director pairing dashboard and operational air traffic control (ADR-031A).
 * **Subcommands**:
@@ -341,15 +349,15 @@ agyis [-h] [-v]
   - `route <A-L|alias> [--task-id <id>]`: Outputs structured dispatch briefing and `psl_stage_transition_payload.json` template for the 12 canonical routing workflows.
   - `verify [--allow-dirty]`: Audits the active pairing session against the 5 flight director invariants.
 
-### 24. `router`
+### 25. `router`
 * **Syntax**: `agyis router [workflow] [--task-id <id>] [-w|--workspace <path>] [--json]`
 * **Purpose**: Dynamic subagent router dispatching specialized agent pipelines (`Investigator -> Planner -> Builder -> Reviewer -> Custodian -> Auditor`) across the 12 canonical workflows.
 
-### 25. `ladder`
+### 26. `ladder`
 * **Syntax**: `agyis ladder [workflow] [--task-id <id>] [-w|--workspace <path>] [--json]`
 * **Purpose**: Backwards-compatible sibling top-level subparser aliasing `router` across the 12 canonical workflows.
 
-### 26. `clean`
+### 27. `clean`
 * **Syntax**: `agyis clean [--checkpoints] [--worktrees] [--branches] [--scratch] [--dist] [--caches] [--all] [--retention <N>] [--scratch-hours <H>] [--dry-run] [-w|--workspace <path>] [--json]`
 * **Purpose**: Multi-branch workspace hygiene, orphaned git worktree pruning, merged ephemeral branch cleanup, checkpoint retention, scratchpad expiry, build artifact removal, and build cache purging (ADR-031A, ADR-031B).
 * **Flags**:
@@ -358,7 +366,7 @@ agyis [-h] [-v]
   - `--retention <N>` / `--scratch-hours <H>`: Checkpoint retention count (default `5`) and scratchpad age threshold in hours (default `24.0`).
   - `--dry-run`, `-w|--workspace`, `--json`: Preview mode, workspace root override, and JSON report.
 
-### 27. `re`
+### 28. `re`
 * **Syntax**: `agyis re {status,init,patch-rea,pre-analyze,find,decompile,pcap,disasm,xrefs,addr,cache,daemon,seed,prime,clean} [args]`
 * **Purpose**: Cleanroom reverse engineering toolsuite, Ghidra direct-mount acceleration, persistent MCP daemon bridge & query caching engine (ADR-028, ADR-034, `PSL-RE-001`, Issue #113).
 * **Subcommands**:
@@ -378,7 +386,7 @@ agyis [-h] [-v]
   - `prime [--top <N>] [--file <path>] [--binary <name>] [--timeout <N>] [--dry-run] [--json]`: Pre-warms decompiler query cache on priority functions to guarantee sub-millisecond retrieval.
   - `clean [--locks] [--logs] [--vacuum] [--force] [--dry-run] [--json]`: Safe hygiene and space reclamation; removes orphan Ghidra locks, prunes old logs, and vacuums SQLite database.
 
-### 28. `ext`
+### 29. `ext`
 * **Syntax**: `agyis ext {list,run,init} [args]`
 * **Purpose**: Extensible workspace CLI command runner and management suite (ADR-034).
 * **Subcommands**:
@@ -392,12 +400,12 @@ agyis [-h] [-v]
 To verify the CLI palette programmatically:
 
 ```bash
-# Verify all 28 top-level subparsers (router and ladder separate subparsers; changelog aliases changelogs) are registered:
+# Verify all 29 top-level subparsers (30 parser entries incl. changelogs alias; router and ladder separate subparsers) are registered:
 agyis --help
 # or: python3 -m harness.cli --help
 
 # Verify individual subcommand help dispatch:
-for cmd in doctor hook test audit rules skills agents subagents status remote auth sync init harmonize onboard install uninstall verify gui release-notes changelog checkpoint cockpit router ladder clean re ext; do
+for cmd in doctor hook test audit rules skills agents subagents status remote auth sync init harmonize onboard install uninstall verify gui release release-notes changelog checkpoint cockpit router ladder clean re ext; do
     agyis "$cmd" --help > /dev/null
 done
 ```

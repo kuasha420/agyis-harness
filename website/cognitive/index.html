@@ -5,18 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <script>try{const s=localStorage.getItem("color-scheme");if(s==="light"||s==="dark"){document.querySelector('meta[name="color-scheme"]').content=s;}}catch{}</script>
-  <title>Cognitive Architecture &amp; Subagent Ladder | Agyis Harness 1.1.0</title>
-  <meta name="description" content="PSL Invariant Codex v2, 19+4 / max 20 tool ceiling, 8 specialist personas, Cockpit Flight Director A-L 12-workflow router, 512k/840k/1M checkpoint runway, and 30 provisionable skills.">
-  <meta property="og:title" content="Cognitive Architecture &amp; Subagent Ladder | Agyis Harness 1.1.0">
-  <meta property="og:description" content="Multi-agent governance, PSL Codex v2, tool ceiling validation, 12 canonical routing workflows, and 30 modular workspace skills.">
+  <title>Cognitive Architecture &amp; Subagent Ladder | Agyis Harness 1.1.1</title>
+  <meta name="description" content="PSL Invariant Codex v2, 19+4 / max 20 tool ceiling, 8 specialist personas, Cockpit Flight Director A-L 12-workflow router, 512k/840k/1M checkpoint runway, and 32 provisionable skills.">
+  <meta property="og:title" content="Cognitive Architecture &amp; Subagent Ladder | Agyis Harness 1.1.1">
+  <meta property="og:description" content="Multi-agent governance, PSL Codex v2, tool ceiling validation, 12 canonical routing workflows, and 32 modular workspace skills.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://kuasha420.github.io/agyis-harness/cognitive/">
   <meta property="og:image" content="https://kuasha420.github.io/agyis-harness/assets/og-image.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Cognitive Architecture | Agyis Harness 1.1.0">
-  <meta name="twitter:description" content="PSL Codex v2, 8 specialist personas, A-L 12-workflow router, and 30 modular skills.">
+  <meta name="twitter:title" content="Cognitive Architecture | Agyis Harness 1.1.1">
+  <meta name="twitter:description" content="PSL Codex v2, 8 specialist personas, A-L 12-workflow router, and 32 modular skills.">
   <meta name="twitter:image" content="https://kuasha420.github.io/agyis-harness/assets/og-image.png">
   <meta name="theme-color" content="#f4f6fa" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#080e1a" media="(prefers-color-scheme: dark)">
@@ -518,7 +518,7 @@
           <li><a href="#personas">Tool ceiling &amp; personas</a></li>
           <li><a href="#router">Cockpit &amp; A-L router</a></li>
           <li><a href="#runway">Runway &amp; Gate 2</a></li>
-          <li><a href="#skills">30 skills catalog</a></li>
+          <li><a href="#skills">32 skills catalog</a></li>
         </ul>
       </div>
     </nav>
@@ -705,7 +705,7 @@ agyis audit verdict</code></pre>
 
     <section id="skills" class="page-section cog-band" aria-labelledby="skills-heading">
       <div class="container">
-        <h2 id="skills-heading">Provisionable skills catalog (30 skills, 9 languages, 12 roles)</h2>
+        <h2 id="skills-heading">Provisionable skills catalog (32 skills, 9 languages, 12 roles)</h2>
         <p>Verified against <code>overview.json.workspace_inventory.skills.names</code> and exact preset mappings in <code>harness/skills/presets.py</code>. Single-source symlink provisioning keeps repository <code>.agents/skills/</code> clean without duplicating global plugin skills.</p>
 
         <div class="preset-box">
@@ -752,17 +752,17 @@ agyis audit verdict</code></pre>
             <input type="search" id="skill-search-input" placeholder="Skill name or domain (e.g. db-ops, pytest)">
           </label>
           <div id="skill-category-group" class="segmented-group" role="group" aria-label="Filter skills by category">
-            <button type="button" class="segmented-btn is-active" data-skill-cat="all" aria-pressed="true">All (30)</button>
+            <button type="button" class="segmented-btn is-active" data-skill-cat="all" aria-pressed="true">All (32)</button>
             <button type="button" class="segmented-btn" data-skill-cat="stack" aria-pressed="false">Stack (5)</button>
             <button type="button" class="segmented-btn" data-skill-cat="testing" aria-pressed="false">Testing (5)</button>
             <button type="button" class="segmented-btn" data-skill-cat="ops" aria-pressed="false">Workstation &amp; ops (8)</button>
-            <button type="button" class="segmented-btn" data-skill-cat="workflow" aria-pressed="false">Workflow &amp; continuity (9)</button>
+            <button type="button" class="segmented-btn" data-skill-cat="workflow" aria-pressed="false">Workflow &amp; continuity (11)</button>
             <button type="button" class="segmented-btn" data-skill-cat="telemetry" aria-pressed="false">Telemetry (2)</button>
             <button type="button" class="segmented-btn" data-skill-cat="re" aria-pressed="false">Cleanroom RE (1)</button>
           </div>
         </div>
 
-        <p id="skills-count-status" style="font-family: var(--font-mono); font-size: var(--text-sm); margin-block-end: 0.75rem; font-variant-numeric: tabular-nums;">Showing 30 of 30 verified workspace skills</p>
+        <p id="skills-count-status" style="font-family: var(--font-mono); font-size: var(--text-sm); margin-block-end: 0.75rem; font-variant-numeric: tabular-nums;">Showing 32 of 32 verified workspace skills</p>
         <div id="skills-grid" class="card-grid-3"></div>
       </div>
     </section>
@@ -786,7 +786,7 @@ agyis audit verdict</code></pre>
           <li><a href="../hud-re/">HUD &amp; RE</a></li>
           <li><a href="../brand/">Brand</a></li>
           <li><a href="https://github.com/kuasha420/agyis-harness" target="_blank" rel="noopener noreferrer">Repository</a></li>
-          <li><a href="https://github.com/kuasha420/agyis-harness/releases/tag/v1.1.0" target="_blank" rel="noopener noreferrer">Releases</a></li>
+          <li><a href="https://github.com/kuasha420/agyis-harness/releases/tag/v1.1.1" target="_blank" rel="noopener noreferrer">Releases</a></li>
         </ul>
       </nav>
     </div>

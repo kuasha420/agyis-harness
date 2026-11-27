@@ -8,9 +8,9 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Platform](https://img.shields.io/badge/Platform-Google_Antigravity_v2.34-4285F4.svg)](https://antigravity.google)
 [![Models](https://img.shields.io/badge/Models-Gemini_4_Ready_(512k%2F1M)-8E75B2.svg)](docs/specs/antigravity_v2_34_compatibility_inventory.md)
-[![Version](https://img.shields.io/badge/Version-v1.1.0-brightgreen.svg)](https://github.com/kuasha420/agyis-harness/releases/tag/v1.1.0)
+[![Version](https://img.shields.io/badge/Version-v1.1.1-brightgreen.svg)](https://github.com/kuasha420/agyis-harness/releases/tag/v1.1.1)
 [![CI](https://github.com/kuasha420/agyis-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/kuasha420/agyis-harness/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/Tests-2572_Hermetic_Passing-brightgreen.svg)](docs/official-specs/testing-contracts.md)
+[![Tests](https://img.shields.io/badge/Tests-2623_Hermetic_Passing-brightgreen.svg)](docs/official-specs/testing-contracts.md)
 [![AFF](https://img.shields.io/badge/AFF-100%2F100-brightgreen.svg)](docs/taxonomy/project-ledger.md)
 [![Website](https://img.shields.io/badge/Website-GitHub_Pages-1B4DFF.svg)](https://kuasha420.github.io/agyis-harness/)
 
@@ -116,7 +116,7 @@ Once onboarded, your development lifecycle with Google Antigravity is protected 
 3. **Surgical Contiguous Edits**: Agents edit code using targeted single-block replacements (`edit_file`, matching the `99.25%` historical success rate of contiguous edits across `14,729` calls).
 4. **Completion Fence Clearance**: Running `agyis test` clears `code_dirty`; running `agyis verify --spec` clears `spec_dirty` across `docs/specs/`.
 5. **Skill Hygiene & Deduplication**: Run `agyis skills --prune-duplicates` and `agyis rules --dedup` to eliminate redundant prompt overhead (`PSL Invariant Codex v2`: **8** core invariants `PSL-INV-001`–`008` + on-demand `PSL-RE-001`).
-6. **Dynamic Scaled Compaction**: Scales automatically across **Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`/`1M`)** and **`256k`** context windows (`70%` amber / `90%` red, `80`-step soft checkpoint horizon), emitting live `PreInvocation` `systemMessage` directives and CID-scoped checkpoints (`agyis checkpoint create`).
+6. **Dynamic Scaled Compaction**: Scales automatically across **Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`/`1M`)** and **`256k`** context windows (`70%` amber / `90%` red; window-scaled soft checkpoint step horizon `256k -> 80`, `512k -> 160`, `1M -> 320`), emitting live `PreInvocation` `systemMessage` directives and CID-scoped checkpoints (`agyis checkpoint create`).
 
 ---
 
@@ -154,9 +154,9 @@ agyis onboard . --create-branch --pr                  # End-to-end onboarding wi
 
 ---
 
-## 🛠️ Consolidated 28-Command CLI Palette
+## 🛠️ Consolidated 29-Command CLI Palette
 
-The unified `agyis` CLI registers **28** top-level subcommands (`router` and `ladder` separately; `changelog` also accepts `changelogs` — see [`docs/official-specs/cli-palette.md`](docs/official-specs/cli-palette.md)):
+The unified `agyis` CLI registers **29** top-level subcommands (`30` parser entries including `changelogs` alias; `router` and `ladder` separately — see [`docs/official-specs/cli-palette.md`](docs/official-specs/cli-palette.md)):
 
 ```bash
 # 🚀 Workspace Onboarding & Hygiene
@@ -174,8 +174,8 @@ agyis status                     # Dashboard: health, active hooks, attention ga
 agyis test [-v]                  # Run hermetic test suite (sub-second component benchmarks)
 agyis verify [--spec]            # Verify 4 cleanroom RE specs & rea@6.9.0 typed obligation ledgers
 
-# 🧩 30 Modular Skills, 8 Agent Personas & Rules
-agyis skills [--sync]            # Inspect/sync 30 skills (>100 L ToC, <24,576 B cap)
+# 🧩 32 Modular Skills, 8 Agent Personas & Rules
+agyis skills [--sync]            # Inspect/sync 32 skills (incl. pause, resume; >100 L ToC, <24,576 B cap)
 agyis skills --prune-duplicates  # Prune duplicate workspace skills shadowing global plugin
 agyis rules [--lint] [--dedup]   # Audit and deduplicate global/workspace agent rules
 agyis agents [name|create|sync|validate] # Catalog, scaffold & validate the 8 canonical personas
@@ -210,6 +210,8 @@ agyis auth <login|status|logout> # GitHub organization telemetry authentication
 agyis audit [stage]              # Empirical telemetry mining, AFF audit (`aff`) & Gate 2 (`certify`)
 
 # 📦 Release Automation, GUI & Deployment
+agyis release bump <ver> [--dry-run|--apply] # Atomic SemVer bump across manifests, lockfile, OG card, site & docs
+agyis release check [--include-site] # Verify SemVer release parity across manifests, OG SVG, changelog & site
 agyis release-notes              # Conventional commit parser & structured release notes
 agyis changelog                  # Keep-a-Changelog generator (`changelogs` alias)
 agyis gui [--install-launcher] [--service install] [--devtools] [--toggle] # Live CDP Trajectory HUD
@@ -223,13 +225,13 @@ agyis uninstall                  # Clean plugin uninstallation without collatera
 
 Agyis declares **7** registration blocks in [`hooks.json`](hooks.json) (symlink to [`harness/hooks/hooks.json`](harness/hooks/hooks.json)) backed by **8** runner targets verified by `agyis doctor` (default state path `/tmp/agyis_harness_state_{uid}`, overridable via `AGYIS_HARNESS_STATE_DIR` / `PSL_HARNESS_STATE_DIR`):
 
-1. **`psl-command-safety-guard` (`PreToolUse`)**: Injects certified CPython >= 3.12 (`uv`), enforces `PAGER=cat` & `SYSTEMD_PAGER=cat`, normalizes `call_mcp_tool` & eager `mcp_*` arguments, guards `swarm{action:"kill"}` during pause states, and adds SSH timeouts + user PATH shims.
+1. **`psl-command-safety-guard` (`PreToolUse`)**: Injects certified CPython >= 3.12 (`uv`), enforces `PAGER=cat` & `SYSTEMD_PAGER=cat`, normalizes `call_mcp_tool` & eager `mcp_*` arguments, guards `swarm{action:"kill"}` during pause states, adds SSH timeouts + user PATH shims, runs the **#93 Anti-Clobber Guard** (conflict-marker, catastrophic contraction, and append-only `##` monotonic protection), and enforces the **#67 Memory Guard & Cross-Worktree Concurrency Semaphore** (`matrix.json` `system_thresholds`).
 2. **`psl-anti-loop-guard` (`PreToolUse`)**: Covers `read_file`/`view_file`, `write_file`/`edit_file`, `swarm`, and `run_workflow`; breaks 3+ identical consecutive tool calls and blocks status/log polling loops.
 3. **`psl-output-compactor` (`PostToolUse`)**: Emits `{"overwriteResult": compacted}` on succeeding `run_command` outputs `>2KB` and `read_file`/`view_file` outputs `>32KB`, while preserving failing commands (`exitCode != 0` or `error`) **100% verbatim** (`{}`).
-4. **`psl-stop-verification-fence` (`PreToolUse`, `PostToolUse`, `Stop`)**: Tracks decoupled `code_dirty` vs `spec_dirty` via `verification-fence` and `post-verification-fence`; inspects `hookEventName` and `payload["error"]`, honors `StopHookArgs.continuationActive`, and clears on `agyis test` or `agyis verify --spec`.
-5. **`psl-anti-drift-guard` (`PreToolUse`)**: Enforces plan boundaries (uppercase `Path`/`Content`/`Replacement`), Native Plan-Mode Lock (`ADR-031A`), read-only Auditor write-blocks, and the Q5 read-only shell mutation guard (`agyis_reviewer`, `agyis_planner`, `agyis_coordinator`, `agyis_auditor`, `agyis_investigator`).
+4. **`psl-stop-verification-fence` (`PreToolUse`, `PostToolUse`, `Stop`)**: Tracks decoupled `code_dirty` vs `spec_dirty` via `verification-fence` and `post-verification-fence`; inspects `hookEventName` and `payload["error"]`, honors `StopHookArgs.continuationActive`, verifies native `invoke_subagent` / `run_workflow` / swarm dispatch Stop-Gate truth, and clears on `agyis test` or `agyis verify --spec`.
+5. **`psl-anti-drift-guard` (`PreToolUse`)**: Enforces plan boundaries (uppercase `Path`/`Content`/`Replacement`), `#93` anti-clobber & append-only checks, Native Plan-Mode Lock (`ADR-031A`), read-only Auditor write-blocks, and the Q5 read-only shell mutation guard (`agyis_reviewer`, `agyis_planner`, `agyis_coordinator`, `agyis_auditor`, `agyis_investigator`).
 6. **`psl-token-proximity-guard` (`PreToolUse`)**: Monitors active-checkpoint token accumulation with dynamic scaling across **`256k` / `512k` / `1M`** context windows in read-only SQLite URI mode (honoring `ANTIGRAVITY_APP_DATA_DIR`).
-7. **`psl-compaction-advisory` (`PreInvocation`)**: Pins session roles, tracks the `80`-step soft checkpoint horizon, auto-saves CID-scoped `.agents/artifacts/checkpoints/<conv_id>.md`, and emits `v2.34.0` nested `systemMessage` advisories (`ADR-033`).
+7. **`psl-compaction-advisory` (`PreInvocation`)**: Pins session roles, tracks the window-scaled soft checkpoint step horizon (`256k -> 80`, `512k -> 160`, `1M -> 320`), auto-saves CID-scoped `.agents/artifacts/checkpoints/<conv_id>.md`, and emits `v2.34.0` nested `systemMessage` advisories (`ADR-033`).
 
 > Full schema & event contract: 👉 **[docs/official-specs/lifecycle-hooks.md](docs/official-specs/lifecycle-hooks.md)**
 
@@ -245,11 +247,11 @@ Agyis declares **7** registration blocks in [`hooks.json`](hooks.json) (symlink 
          │ (User preferences, developer credentials & user agents)
          ▼
 [Layer 1: Global Plugin] (~/.gemini/config/plugins/agyis-harness/) ── DEFAULT FALLBACK
-           (7 hooks.json blocks, 30 modular skills, 8 canonical personas, certified runtimes)
+           (7 hooks.json blocks, 32 modular skills, 8 canonical personas, certified runtimes)
 ```
 
 - **Codex v2 Governance (`8` + `1`)**: **8** core universal invariants (`PSL-INV-001`–`008` in `GLOBAL_AGENTS.md` / `harness/rules/`) plus the on-demand `PSL-RE-001` cleanroom RE pack housed in `harness/skills/re-ops/SKILL.md`.
-- **Modular Skills (`30`)**: Every `harness/skills/*/SKILL.md` over `100` lines carries a `## Table of Contents` and stays below `24,576` bytes; workspace skills mirroring plugin skills must be symlinks or pruned.
+- **Modular Skills (`32`)**: Every `harness/skills/*/SKILL.md` over `100` lines carries a `## Table of Contents` and stays below `24,576` bytes (including `pause` and `resume` alongside `graceful-parking` and `powerloss-resume`); workspace skills mirroring plugin skills must be symlinks or pruned.
 - **Agent Personas (`8`)**: Standard `agyis_*` personas (`<=20` canonical `v2.34+` tools) stay global; workspace `.agents/agents/` is reserved strictly for domain-unique specialists ([`docs/runbooks/repo-onboarding.md`](docs/runbooks/repo-onboarding.md#4-human-workspace--agent-boundary-controls)).
 - **On-Demand REA Skill Healing**: `harness/runtime/healing.py` checks `rea-agents` packages and `~/.gemini/config/plugins/agyis-harness/skills/reverse-engineer-anything` rather than vendoring upstream skills in-tree.
 
@@ -283,7 +285,7 @@ Full reconciled tables and Issue #83 Route A/B/C scorecards:
 
 ## 🧪 Verification & Testing Contract
 
-All **2,572** unit, integration, and contract tests across **119 modules** (`115` `tests/test_*.py` + `4` `tests/e2e/test_*.py`) run hermetically with zero external network dependencies and zero live `~/.gemini/config/config.json` mutation:
+All **2,623** unit, integration, and contract tests across **125 modules** (`121` `tests/test_*.py` + `4` `tests/e2e/test_*.py`) run hermetically with zero external network dependencies and zero live `~/.gemini/config/config.json` mutation:
 
 ```bash
 ./agyis test                         # Full hermetic suite (~24s; sub-second component modules)
@@ -301,8 +303,8 @@ python3 -m harness.cli rules --lint  # Verify agent rules & zero echo duplicatio
 
 ## 🗺️ Master Roadmap & Architectural Horizons
 
-- **Horizon 0 & 1 (Completed — `v1.0.0` GA -> `v1.1.0` Uplift)**: Empirical taxonomy (`3,856`-session Gate 0 corpus), **PSL Invariant Codex v2** (`PSL-INV-001`–`008` + `PSL-RE-001`), **7** lifecycle hook blocks (**8** runner checks), **28**-command CLI suite, **30** modular skills, **8** canonical `v2.34+`/`v2.35.2` personas (`<=20` tool ceiling), strict `exa.hooks_pb` wire compatibility, Option-B checkpoint ConnectRPC Trajectory HUD & `:40624` playback parity, Orbital Aegis 5-route Light/Dark `2.5D` showcase, ELF/PE cleanroom RE tooling, **29/29** Antigravity `v2.34.0` / Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`/`1M`) compatibility drifts resolved, hardened sync-daemon/COPY/launcher stability (`#119`, `#120`, `#121`), and CI/release wheel publishing.
-- **Horizon 2 (Post-`v1.1.0`)**: Deferred `ADR-029` Spatial Terminal Multiplexing, Cross-Node Swarm & Publication, and RE & Audit Hardening.
+- **Horizon 0 & 1 (Completed — `v1.0.0` GA -> `v1.1.1` Uplift)**: Empirical taxonomy (`3,856`-session Gate 0 corpus), **PSL Invariant Codex v2** (`PSL-INV-001`–`008` + `PSL-RE-001`), **7** lifecycle hook blocks (**8** runner checks), **29**-command CLI suite (`30` parser entries incl. `release` & `changelogs`), **32** modular skills (incl. `pause` & `resume`), **8** canonical `v2.34+`/`v2.35.2` personas (`<=20` tool ceiling), strict `exa.hooks_pb` wire compatibility, Option-B checkpoint ConnectRPC Trajectory HUD & `:40624` playback parity, Orbital Aegis 5-route Light/Dark `2.5D` showcase, ELF/PE cleanroom RE tooling, **29/29** Antigravity `v2.34.0` / Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`/`1M`) compatibility drifts resolved, hardened sync-daemon/COPY/launcher stability (`#119`, `#120`, `#121`), and CI/release wheel publishing.
+- **Horizon 2 (Post-`v1.1.1`)**: Deferred `ADR-029` Spatial Terminal Multiplexing, Cross-Node Swarm & Publication, and RE & Audit Hardening.
 
 👉 **[roadmap.md](roadmap.md)** | **[CHANGELOG.md](CHANGELOG.md)** | **[docs/taxonomy/project-ledger.md](docs/taxonomy/project-ledger.md)** | **[docs/adr/README.md](docs/adr/README.md)**
 
