@@ -33,6 +33,8 @@ agyis subagents --liveness                     # Inspect active subagents & hear
 agyis cockpit status                           # Print flight deck status, runway tokens & git state
 agyis router <workflow>                        # Display dynamic subagent router briefing & payload
 agyis checkpoint status                        # Check pre-compaction state capture & horizon status
+agyis crosstalk status                         # Check inbound crosstalk baton, active hops & surface
+agyis crosstalk list                           # List Desktop & CLI peer conversations across projects
 
 # ◆ Remote Operations & Empirical Telemetry
 agyis remote exec <target> "<cmd>"             # Multiplexed SSH with login-shell promotion

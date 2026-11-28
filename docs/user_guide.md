@@ -6,7 +6,7 @@
 # Agyis Harness — Canonical User & Operator Guide
 
 **Target Audience**: Engineers, Operators, and Teams Running Google Antigravity™  
-**Version**: `1.1.2` (`2026-11-27`)  
+**Version**: `1.2.0` (`2026-11-28`)  
 **Primary CLI Entrypoint**: `agyis` (backward-compatible alias: `psl`)  
 
 ---
@@ -24,7 +24,7 @@
 ### Three-Tier Precedence Hierarchy
 1. **Layer 3 — Workspace Local (`.agents/`)**: Repository-specific stack rules (`AGENTS.md`), project-only specialist skills/agents, and workspace commands (`agyis ext`).
 2. **Layer 2 — User Preferences (`~/.gemini/antigravity/`, `~/.gemini/config/`)**: Personal workstation defaults and user standalone skills (`~/.gemini/config/skills/`).
-3. **Layer 1 — Global Plugin (`~/.gemini/config/plugins/agyis-harness/`)**: Core **7** `hooks.json` blocks (**8** `doctor` hook runner checks), `GLOBAL_AGENTS.md` (Codex v2), **32** modular skills (`>100` lines include ToC, `<24,576` B cap), and **8** `agyis_*` agent personas (`<=20` canonical `v2.34+` tools).
+3. **Layer 1 — Global Plugin (`~/.gemini/config/plugins/agyis-harness/`)**: Core **7** `hooks.json` blocks (**8** `doctor` hook runner checks), `GLOBAL_AGENTS.md` (Codex v2), **33** modular skills (`>100` lines include ToC, `<24,576` B cap), and **8** `agyis_*` agent personas (`<=20` canonical `v2.34+` tools).
 
 ---
 
@@ -62,17 +62,17 @@ For detailed human workflows, see:
 
 ---
 
-## 4. Consolidated 30-Command CLI Overview
+## 4. Consolidated 31-Command CLI Overview
 
-`agyis` (legacy alias `psl`) registers **30** logical top-level subcommands (`31` parser entries including `project`, `release` & `changelogs` alias; `router` and `ladder` registered separately):
+`agyis` (legacy alias `psl`) registers **31** logical top-level subcommands (`32` parser entries including `crosstalk`, `project`, `release` & `changelogs` alias; `router` and `ladder` registered separately):
 
-| Domain | Top-Level Commands (`30`) | Primary Focus |
+| Domain | Top-Level Commands (`31`) | Primary Focus |
 | :--- | :--- | :--- |
 | **Diagnostics & Testing** | `doctor`, `test`, `status` | Host matrix/`engines`/port audits, hermetic & diff-aware testing, live dashboard |
 | **Lifecycle Hooks** | `hook` | Direct protojson execution of lifecycle guards |
-| **Cockpit & Subagent Routing** | `cockpit`, `router`, `ladder`, `checkpoint`, `subagents` | Flight direction (`A`–`L`), checkpoints, liveness & context gauges |
+| **Cockpit & Subagent Routing** | `cockpit`, `router`, `ladder`, `checkpoint`, `subagents`, `crosstalk` | Flight direction (`A`–`L`), checkpoints, liveness, context gauges & cross-project batons |
 | **Workspace & Onboarding** | `init`, `harmonize`, `onboard`, `project`, `clean`, `ext` | Scaffolding, `.agent/` pruning, `projects/*.json` registry, cache/worktree cleanup, `.agents/commands/` |
-| **Governance & Discovery** | `rules`, `skills`, `agents` | Rule lint/dedup, 32 modular skills (incl. `pause`, `resume`), 8 `agyis_*` personas |
+| **Governance & Discovery** | `rules`, `skills`, `agents` | Rule lint/dedup, 33 modular skills (incl. `crosstalk`, `pause`, `resume`), 8 `agyis_*` personas |
 | **Telemetry & AFF Audits** | `audit`, `sync`, `auth` | Transcript mining, AFF fitness checks, hub sync & systemd daemon |
 | **Cleanroom & Reverse Eng.** | `verify`, `re` | `docs/specs/` claim verification (`--spec`), ledgers, `.dirtyroom/` Ghidra |
 | **Delivery, GUI & Releases** | `install`, `uninstall`, `gui`, `remote`, `release`, `release-notes`, `changelog` | Global install, Electron CDP HUD, ControlMaster SSH, atomic release bump & changelogs |

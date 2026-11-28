@@ -543,6 +543,36 @@ class TestPslCli(unittest.TestCase):
         self.assertIn("--full", forwarded)
         self.assertIn("--json", forwarded)
 
+    def test_cli_crosstalk_dispatch_and_no_delete_subcommand(self) -> None:
+        """Verifies `agyis crosstalk` parser registration, status --json, and absence of delete."""
+        from harness.cli import build_parser
+
+        parser = build_parser("agyis")
+        parsed = parser.parse_args(["crosstalk", "status", "--json"])
+        self.assertEqual(parsed.subcommand, "crosstalk")
+        self.assertEqual(parsed.crosstalk_action, "status")
+
+        cfg_dir = Path(self.temp_dir.name) / "xt_cfg"
+        app_dir = Path(self.temp_dir.name) / "xt_app"
+        ws_dir = Path(self.temp_dir.name) / "xt_ws"
+        ws_dir.mkdir(parents=True, exist_ok=True)
+        with patch.dict(
+            os.environ,
+            {
+                "AGYIS_CONFIG_DIR": str(cfg_dir),
+                "PSL_CONFIG_DIR": str(cfg_dir),
+                "ANTIGRAVITY_APP_DATA_DIR": str(app_dir),
+                "ANTIGRAVITY_LS_ADDRESS": "",
+                "ANTIGRAVITY_CSRF_TOKEN": "",
+                "ANTIGRAVITY_CONVERSATION_ID": "",
+            },
+        ), patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+            rc = main(["crosstalk", "status", "--workspace", str(ws_dir), "--json"])
+            self.assertEqual(rc, 0)
+            payload = json.loads(mock_out.getvalue())
+            self.assertTrue(payload["success"])
+            self.assertEqual(payload["recent_count"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

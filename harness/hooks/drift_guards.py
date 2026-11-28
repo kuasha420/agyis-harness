@@ -93,6 +93,23 @@ _ROLE_EXTRACT_ENV_KEYS = (
     "AGYIS_AGENT_NAME",
     "ANTIGRAVITY_AGENT_ROLE",
 )
+_CROSSTALK_DRIFT_CMD_RE = re.compile(
+    r"(?:"
+    r"(?:(?:exa\.)?language_server_pb\.)?ConversationService/"
+    r"(?:DeleteConversation|CreateConversation|UpdateConversation|GetConversation|ListConversations)"
+    r"|(?:(?:exa\.)?language_server_pb\.)?LanguageServerService/SendUserCascadeMessage"
+    r"|\bagentapi\s+(?:send-message|new-conversation)\b"
+    r"|\b(?:agyis|psl)(?:\.py)?\s+crosstalk\s+(?:handoff|send|archive)\b"
+    r")",
+    re.I,
+)
+_SUBAGENTS_FALSE_ROLES = frozenset({
+    "auditor", "harness_auditor", "agyis_auditor", "forensic_auditor", "qa", "qa_verifier",
+    "reviewer", "harness_reviewer", "agyis_reviewer", "inspector", "hammer",
+    "investigator", "agyis_investigator", "detective", "forensic",
+    "custodian", "harness_custodian", "agyis_custodian", "git_custodian", "commit_gate",
+    "builder", "worker", "implementer", "harness_builder", "agyis_builder", "executioner",
+})
 
 
 def is_exempt_file(path_str: str) -> bool:
@@ -277,6 +294,92 @@ def check_plan_mode_lock(payload: dict) -> Optional[dict]:
     return None
 
 
+def _has_explicit_subagents_false(payload: dict) -> bool:
+    """Returns True when payload explicitly marks subagents delegation disabled."""
+    if payload.get("subagents") is False:
+        return True
+    for key in ("permissions", "agent_meta", "agentMeta", "subagent", "agent"):
+        nested = payload.get(key)
+        if isinstance(nested, dict) and nested.get("subagents") is False:
+            return True
+    return False
+
+
+def check_crosstalk_role_guard(
+    payload: dict,
+    *,
+    role: Optional[str] = None,
+    exact_agent: Optional[str] = None,
+    explicit_raw: str = "",
+    conv_id: Optional[str] = None,
+) -> Optional[dict]:
+    """
+    Advisory-only (Decision D6) role-boundary check for cross-thread shell patterns.
+
+    Emits stderr diagnostics and queues a PreInvocation markdown/systemMessage
+    advisory when a `subagents: false` or read-only/execution subagent role
+    executes raw ConversationService/agentapi/crosstalk shell calls. Never denies.
+    """
+    if not isinstance(payload, dict):
+        return None
+    tool_call = payload.get("toolCall", {})
+    tool_name = tool_call.get("name") or "" if isinstance(tool_call, dict) else ""
+    if not tool_name:
+        tool_name = payload.get("tool_name") or payload.get("action") or ""
+    if tool_name.strip().lower() not in ("run_command", "execute_command", "bash"):
+        return None
+
+    tool_args = tool_call.get("args", {}) if isinstance(tool_call, dict) else {}
+    if not isinstance(tool_args, dict):
+        tool_args = {}
+    cmd = str(
+        tool_args.get("CommandLine")
+        or tool_args.get("command")
+        or payload.get("CommandLine")
+        or payload.get("command")
+        or ""
+    )
+    if not cmd or not _CROSSTALK_DRIFT_CMD_RE.search(cmd):
+        return None
+
+    if conv_id is None:
+        conv_id = str(payload.get("conversationId") or payload.get("conversation_id") or "default")
+    if role is None:
+        explicit_raw = explicit_raw or _extract_explicit_raw_role(payload)
+        resolved_role, exact_agent = resolve_hook_role_and_agent(
+            payload, role=explicit_raw or None, conv_id=conv_id,
+        )
+        role = explicit_raw or exact_agent or resolved_role or ""
+
+    r_lower = role.strip().lower().replace("-", "_")
+    if "coordinator" in r_lower or "planner" in r_lower or "architect" in r_lower or "orchestrator" in r_lower or "flight_director" in r_lower:
+        if not _has_explicit_subagents_false(payload):
+            return None
+
+    explicit_subagents_false = _has_explicit_subagents_false(payload)
+    is_restricted_role = (
+        r_lower in _SUBAGENTS_FALSE_ROLES
+        or any(tok in r_lower for tok in ("auditor", "reviewer", "investigator", "custodian"))
+        or ("builder" in r_lower and bool(exact_agent or explicit_raw))
+    )
+    if not (explicit_subagents_false or is_restricted_role):
+        return None
+
+    display_role = role or "subagents:false"
+    reason = (
+        f"[AGYIS CROSSTALK ROLE ADVISORY] Restricted/non-spawning role '{display_role}' "
+        "invoked cross-thread control in a shell command. Return findings to your coordinator "
+        "or let an orchestrator drive `agyis crosstalk` rather than raw ConversationService/agentapi RPCs (advisory-only, D6)."
+    )
+    user_md = (
+        f"**[Agyis Crosstalk Role Advisory]** Role `{display_role}` (`subagents: false`) "
+        "invoked cross-thread RPC/CLI via shell — allowed (D6 advisory-only)."
+    )
+    emit_stderr_diagnostic(reason)
+    enqueue_pending_advisory(conv_id, reason, state_dir=get_state_dir(), user_markdown=user_md)
+    return {"decision": "allow", "reason": reason}
+
+
 def check_auditor_write_block(payload: dict) -> Optional[dict]:
     """
     PSL PreToolUse Write-Block Guard (ADR-024 / ADR-025).
@@ -347,6 +450,16 @@ def check_auditor_write_block(payload: dict) -> Optional[dict]:
         or "builder" in r_lower
     )
     if (is_builder or is_main) and not explicit_write_false:
+        if not is_main or _has_explicit_subagents_false(payload):
+            crosstalk_adv = check_crosstalk_role_guard(
+                payload,
+                role=role,
+                exact_agent=exact_agent,
+                explicit_raw=explicit_raw,
+                conv_id=conv_id,
+            )
+            if crosstalk_adv is not None:
+                return crosstalk_adv
         return None
 
     should_block = (
@@ -359,7 +472,13 @@ def check_auditor_write_block(payload: dict) -> Optional[dict]:
         or explicit_write_false
     )
     if not should_block:
-        return None
+        return check_crosstalk_role_guard(
+            payload,
+            role=role,
+            exact_agent=exact_agent,
+            explicit_raw=explicit_raw,
+            conv_id=conv_id,
+        )
 
     tool_call = payload.get("toolCall", {})
     tool_name = tool_call.get("name") or "" if isinstance(tool_call, dict) else ""
@@ -411,6 +530,15 @@ def check_auditor_write_block(payload: dict) -> Optional[dict]:
                         "mutating shell commands (filesystem modifications, git write operations, or unexempted output redirections)."
                     ),
                 }
+        crosstalk_adv = check_crosstalk_role_guard(
+            payload,
+            role=role,
+            exact_agent=exact_agent,
+            explicit_raw=explicit_raw,
+            conv_id=conv_id,
+        )
+        if crosstalk_adv is not None:
+            return crosstalk_adv
 
     return None
 

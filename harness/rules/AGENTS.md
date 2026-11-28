@@ -15,7 +15,7 @@ These operational rules govern cognitive behavior and human-in-the-loop alignmen
 *Explicit CLI palettes yield 10x lower human intervention rates:*
 
 ```bash
-# 🧪 Verification & Testing (Hermetic, 2,695 tests, sub-second modules)
+# 🧪 Verification & Testing (Hermetic, 2,732 tests, sub-second modules)
 ./agyis test                                   # Run complete project test suite (~24s full suite, <1.0s modules)
 python3 -m harness.cli test                    # Run complete project test suite
 agyis verify --spec                            # Verify cleanroom specifications in docs/specs/**
@@ -91,6 +91,7 @@ agyis cockpit verify [--allow-dirty]           # Audit active session against th
 agyis checkpoint [status|generate|create|verify|prune] # Carrier-grade pre-compaction state capture & succession (ADR-031A, ADR-033)
 agyis router <letter|alias>                    # Dynamic subagent router CLI alias (e.g. agyis router victory)
 agyis ladder <letter|alias>                    # Backwards-compatible router CLI alias (e.g. agyis ladder builder)
+agyis crosstalk {list,search,status,inspect,widget,handoff,send,archive} # Cross-project & horizontal baton handoff (/crosstalk)
 
 # 🧹 Multi-Branch Workspace, Release Automation, Clean & Cache Hygiene
 agyis release bump <ver> [--dry-run|--apply]   # Atomic SemVer release bump across manifests, lockfile, OG card, site & docs
@@ -99,7 +100,8 @@ agyis clean [--all] [--checkpoints] [--worktrees] [--dist] # Purge stale checkpo
 rm -rf .next/ .turbo/ node_modules/.cache      # Invalidate stale build caches prior to verification gates
 python3 -c "from harness.delivery import purge_build_caches; purge_build_caches('.')" # Standalone cache purge
 
-# 🛠️ Workstation & Remote Modular Skills (32 Skills)
+# 🛠️ Workstation & Remote Modular Skills (33 Skills)
+# crosstalk:        Cross-conversation & cross-project baton handoff, Desktop/CLI discovery, Generative UI widgets & D6 guards
 # cockpit-director: Air Traffic Control Tower runbook, root flight deck pairing, 12 routing workflows, compaction thresholds
 # subagent-router:  Dynamic subagent routing, 12 workflows, 4 execution modes (Ladder, Fan-Out, Teamwork, Boost), swarm PRs
 # pause / resume:   Zero-kill /pause quiescence handshake (pause_gate.json, PARKED_STATE.md) & live-first /resume 3-branch triage

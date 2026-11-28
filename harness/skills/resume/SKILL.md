@@ -107,3 +107,6 @@ When a subagent is confirmed `DEAD`, crashed after power loss, or permanently un
    - Any `DEAD` workers have been backed up to `.agents/teamwork/backups/` with `REPLACEMENT_BRIEF.md`.
 2. **Update State Ledger**: Mark `PARKED_STATE.md` as resumed (recording timestamp and triage outcome for every worker) or archive it alongside the resume briefing.
 3. **Resume Active Milestone**: Report the concise 3-branch triage summary to the operator (`reattached`, `revived in-place`, `replaced after backup`) and continue the active milestone plan.
+
+### Cross-Session Baton Recovery (`/crosstalk`)
+- When resuming from a cross-thread or cross-project baton rather than an in-place checkpoint, run `agyis crosstalk status --json` and `agyis crosstalk inspect <cid> --steps 20` to recover origin context cleanly before spawning workers.

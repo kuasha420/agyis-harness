@@ -79,3 +79,5 @@ Record the completed phase in the project ledger (e.g. `docs/taxonomy/project-le
 ### Step 6: Session Reset Recommendation
 Because attention degradation and compaction pressure increase once a session enters the `~70%`/`~90%` context runway (of the `512k`/`1M` window) or crosses the `80`-step soft checkpoint horizon, always recommend that the operator reset into a fresh session for the next milestone:
 > *"Milestone completed and committed. All tests pass. Working tree clean. To maintain maximum reasoning aperture and prevent cognitive degradation, please reset into a fresh conversation turn for the next milestone."*
+
+- **Optional `/crosstalk` Succession Carrier**: When handing off directly into a follow-up thread or sibling repository, run `agyis crosstalk handoff --new --title "<milestone>" --summary "<brief>" --include-checkpoint --dry-run` (confirm via Visual Preflight Shield before `--send`) and reference target threads cleanly via clickable `[<title>](conversation://<id>)` pills on Desktop (or `agy --conversation <id>` on CLI).

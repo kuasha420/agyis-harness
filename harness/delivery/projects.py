@@ -315,10 +315,302 @@ def ensure_project_registered(
     }
 
 
+def _uri_to_local_path(uri: str) -> Optional[str]:
+    """Converts a file:// folderUri to a resolved local filesystem path string, else None."""
+    parsed = urlparse(uri)
+    if parsed.scheme.lower() != "file":
+        return None
+    decoded_path = unquote(parsed.path or "")
+    if parsed.netloc and parsed.netloc.lower() != "localhost":
+        decoded_path = f"//{parsed.netloc}{decoded_path}"
+    if not decoded_path:
+        return None
+    try:
+        return str(Path(decoded_path).resolve())
+    except OSError:
+        return decoded_path.rstrip("/") or "/"
+
+
+def _uri_basename(uri: str) -> str:
+    """Extracts repository basename from a folderUri."""
+    parsed = urlparse(uri)
+    path_part = unquote(parsed.path or "").rstrip("/")
+    if not path_part:
+        return ""
+    return Path(path_part).name
+
+
+def _resolved_project_payload(
+    rec: Dict[str, Any],
+    *,
+    matched_by: str,
+    status: str = "resolved",
+    dry_run: bool = False,
+    ensure_result: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Formats a normalized resolution dict for a matched or registered project."""
+    uris = list(rec.get("folder_uris") or [])
+    ws_path = _uri_to_local_path(uris[0]) if uris else None
+    out: Dict[str, Any] = {
+        "success": True,
+        "status": status,
+        "matched_by": matched_by,
+        "project_id": rec["id"],
+        "name": rec.get("name") or (Path(ws_path).name if ws_path else rec["id"]),
+        "workspace_path": ws_path,
+        "folder_uris": uris,
+        "default_branch": rec.get("default_branch"),
+        "project": rec,
+        "candidates": [rec],
+        "dry_run": dry_run,
+    }
+    if ensure_result is not None:
+        out["ensure_result"] = ensure_result
+    return out
+
+
+def resolve_project_target(
+    target: Union[str, Path],
+    config_dir: Optional[Union[str, Path]] = None,
+    ensure: bool = False,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """
+    Resolves a project UUID, workspace path, file:// URI, or repo basename slug
+    against registered Antigravity projects in `<config_dir>/projects/*.json`.
+    """
+    raw = str(target or "").strip()
+    if not raw:
+        return {
+            "success": False,
+            "status": "invalid",
+            "target": raw,
+            "error": "Target project must not be empty.",
+            "project_id": None,
+            "name": None,
+            "workspace_path": None,
+            "folder_uris": [],
+            "default_branch": None,
+            "project": None,
+            "candidates": [],
+            "dry_run": dry_run,
+        }
+
+    cfg_dir = resolve_projects_config_dir(config_dir)
+    registered = list_registered_projects(config_dir=cfg_dir)
+
+    # 1. Exact / case-insensitive project_id (UUID) match
+    raw_lower = raw.lower()
+    id_matches = [rec for rec in registered if rec["id"].lower() == raw_lower]
+    if len(id_matches) == 1:
+        return _resolved_project_payload(id_matches[0], matched_by="project_id", dry_run=dry_run)
+    if len(id_matches) > 1:
+        return {
+            "success": False,
+            "status": "ambiguous",
+            "target": raw,
+            "error": f"Ambiguous project ID '{raw}' matched {len(id_matches)} records.",
+            "project_id": None,
+            "name": None,
+            "workspace_path": None,
+            "folder_uris": [],
+            "default_branch": None,
+            "project": None,
+            "candidates": id_matches,
+            "dry_run": dry_run,
+        }
+
+    try:
+        uuid.UUID(raw)
+        is_uuid = True
+    except ValueError:
+        is_uuid = False
+    if is_uuid:
+        return {
+            "success": False,
+            "status": "not_found",
+            "target": raw,
+            "error": f"No registered Antigravity project found for ID '{raw}'.",
+            "project_id": None,
+            "name": None,
+            "workspace_path": None,
+            "folder_uris": [],
+            "default_branch": None,
+            "project": None,
+            "candidates": [],
+            "dry_run": dry_run,
+        }
+
+    is_path_hint = (
+        isinstance(target, Path)
+        or raw in (".", "..")
+        or raw.startswith(("file://", "/", "./", "../", "~/"))
+        or os.sep in raw
+    )
+
+    def _try_register_or_report_unregistered(local_dir: Path, norm_uri: str) -> Dict[str, Any]:
+        if ensure:
+            ens = ensure_project_registered(local_dir, config_dir=cfg_dir, dry_run=dry_run)
+            if ens.get("success"):
+                rec = {
+                    "id": ens["project_id"],
+                    "name": ens["name"],
+                    "folder_uris": [ens["folder_uri"]],
+                    "default_branch": ens.get("default_branch"),
+                    "file_path": ens.get("project_file"),
+                    "is_git_folder": True,
+                }
+                return _resolved_project_payload(
+                    rec,
+                    matched_by="path_ensured",
+                    status=str(ens.get("action") or "created"),
+                    dry_run=dry_run,
+                    ensure_result=ens,
+                )
+            return {
+                "success": False,
+                "status": "error",
+                "target": raw,
+                "error": ens.get("error") or f"Failed to register workspace '{local_dir}'.",
+                "project_id": None,
+                "name": None,
+                "workspace_path": str(local_dir),
+                "folder_uris": [norm_uri],
+                "default_branch": None,
+                "project": None,
+                "candidates": [],
+                "dry_run": dry_run,
+            }
+        return {
+            "success": False,
+            "status": "unregistered",
+            "target": raw,
+            "error": f"Workspace '{local_dir}' exists on disk but is not registered in Antigravity projects.",
+            "can_ensure": True,
+            "project_id": None,
+            "name": local_dir.name,
+            "workspace_path": str(local_dir),
+            "folder_uris": [norm_uri],
+            "default_branch": None,
+            "project": None,
+            "candidates": [],
+            "dry_run": dry_run,
+        }
+
+    # 2. Path / file:// URI match
+    if is_path_hint:
+        try:
+            norm_uri = normalize_folder_uri(raw)
+        except ValueError as exc:
+            return {
+                "success": False,
+                "status": "invalid",
+                "target": raw,
+                "error": str(exc),
+                "project_id": None,
+                "name": None,
+                "workspace_path": None,
+                "folder_uris": [],
+                "default_branch": None,
+                "project": None,
+                "candidates": [],
+                "dry_run": dry_run,
+            }
+
+        path_matches = [rec for rec in registered if norm_uri in rec["folder_uris"]]
+        if len(path_matches) == 1:
+            return _resolved_project_payload(path_matches[0], matched_by="path", dry_run=dry_run)
+        if len(path_matches) > 1:
+            return {
+                "success": False,
+                "status": "ambiguous",
+                "target": raw,
+                "error": f"Ambiguous project path '{raw}' matched {len(path_matches)} registered projects.",
+                "project_id": None,
+                "name": None,
+                "workspace_path": _uri_to_local_path(norm_uri),
+                "folder_uris": [norm_uri],
+                "default_branch": None,
+                "project": None,
+                "candidates": path_matches,
+                "dry_run": dry_run,
+            }
+
+        local_str = _uri_to_local_path(norm_uri)
+        if local_str:
+            local_dir = Path(local_str)
+            if local_dir.is_dir():
+                return _try_register_or_report_unregistered(local_dir, norm_uri)
+
+        return {
+            "success": False,
+            "status": "not_found",
+            "target": raw,
+            "error": f"Project path does not exist and is not registered: {raw}",
+            "project_id": None,
+            "name": None,
+            "workspace_path": local_str,
+            "folder_uris": [norm_uri],
+            "default_branch": None,
+            "project": None,
+            "candidates": [],
+            "dry_run": dry_run,
+        }
+
+    # 3. Repository name or folder basename slug match
+    exact_matches = [
+        rec for rec in registered
+        if rec["name"] == raw or any(_uri_basename(u) == raw for u in rec["folder_uris"])
+    ]
+    slug_matches = exact_matches or [
+        rec for rec in registered
+        if rec["name"].lower() == raw_lower or any(_uri_basename(u).lower() == raw_lower for u in rec["folder_uris"])
+    ]
+    if len(slug_matches) == 1:
+        return _resolved_project_payload(slug_matches[0], matched_by="slug", dry_run=dry_run)
+    if len(slug_matches) > 1:
+        return {
+            "success": False,
+            "status": "ambiguous",
+            "target": raw,
+            "error": f"Ambiguous project target '{raw}' matched {len(slug_matches)} registered projects.",
+            "project_id": None,
+            "name": None,
+            "workspace_path": None,
+            "folder_uris": [],
+            "default_branch": None,
+            "project": None,
+            "candidates": slug_matches,
+            "dry_run": dry_run,
+        }
+
+    # 4. Fallback: existing relative directory matching target name
+    cand_dir = Path(raw).expanduser()
+    if cand_dir.is_dir():
+        resolved_dir = cand_dir.resolve()
+        return _try_register_or_report_unregistered(resolved_dir, normalize_folder_uri(resolved_dir))
+
+    return {
+        "success": False,
+        "status": "not_found",
+        "target": raw,
+        "error": f"No registered Antigravity project found matching '{raw}'.",
+        "project_id": None,
+        "name": None,
+        "workspace_path": None,
+        "folder_uris": [],
+        "default_branch": None,
+        "project": None,
+        "candidates": [],
+        "dry_run": dry_run,
+    }
+
+
 __all__ = [
     "ensure_project_registered",
     "extract_project_folder_uris",
     "list_registered_projects",
     "normalize_folder_uri",
+    "resolve_project_target",
     "resolve_projects_config_dir",
 ]

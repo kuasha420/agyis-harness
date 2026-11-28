@@ -17,6 +17,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.0] - 2026-11-28
+
+### Features & Architecture
+- feat(crosstalk,delivery): add cross-conversation and horizontal context succession engine (`harness/delivery/crosstalk.py`, `harness/delivery/crosstalk_db.py`, `harness/delivery/projects.py::resolve_project_target`) supporting `[CROSSTALK-V1]` baton envelopes, read-only SQLite FTS5/lineage discovery across `antigravity`, `antigravity-cli`, and `antigravity-ide` with selective `transcript_full.jsonl` hydration, Connect HTTP+JSON `product.v1.ConversationService` / `SendUserCascadeMessage` / `agentapi` (`language_server agentapi send-message`), hop bounds (`MAX_CROSSTALK_HOPS = 2`, `HARD_MAX_CROSSTALK_HOPS = 3`), self/cycle blocking, and Tier-1 `.agents/artifacts/crosstalk/` baton ledgers with `.git/info/exclude` coverage (`harness/delivery/constants.py`)
+- feat(ux,cli,skills): add reusable native UX foundation (`harness/ux/pills.py`, `harness/ux/widgets.py`, externalized `harness/ux/assets/crosstalk_{preflight,constellation}.html`) with validated `conversation://`, `customization://`, and `sidecar://` pills, ref-verified outcomes, and Desktop `<agent-embed>` vs CLI table fallbacks (`is_desktop_surface`); register `agyis crosstalk {list,search,status,inspect,widget,handoff,send,archive}` (`harness/commands/crosstalk.py`, `harness/cli_parsers_crosstalk.py`, expanding CLI to `31` logical subcommands / `32` subparsers) and provision the `crosstalk` modular skill (`harness/skills/crosstalk/SKILL.md`, `references/protocol-and-transports.md`, `.agents/skills/crosstalk`, `GROUP_PRESETS`, expanding skills to `33`)
+- feat(hooks,session-start): wire native `SessionStart` lifecycle hook (`harness/hooks/hooks.json`, `harness/hooks/runner.py`, `harness/hooks/pre_invocation_hook.py::evaluate_session_start`, `harness/hooks/wire_compat.py::build_system_message_step`) for one-shot `inbound_<cid>.json` baton consumption with `injectSteps[0].systemMessage.metadata.user_markdown` handover banners and automatic `role_hint` pinning (`harness/hooks/role_lineage.py`, `harness/hooks/role_pinning.py`)
+
+### Bug Fixes & Hardening
+- fix(hooks,aff): extract `harness/hooks/fence_dispatch.py` from `fence_gates.py` to keep Stop-gate dispatch evaluators cleanly under the AFF module limit (`100.0/100`), add advisory-only D6 crosstalk guards in `anti_loop_hook.py` (`_is_crosstalk_poll`), `command_safety_hook.py` (`evaluate_crosstalk_command_advisory`), and `drift_guards.py` (`check_crosstalk_role_guard`), and wrap `language_server` binaries with the `agentapi` subcommand in `steer_conversation()` (`_build_agentapi_send_cmd`)
+- fix(redaction,subagents): add `sanitize_crosstalk_payload()` in `harness/telemetry/redaction.py` to scrub secrets, CSRF tokens, `.env`/`*.pem`/`*.key` blocks, and hard-block `.dirtyroom/` outbound references (`dirtyroom_leakage`), and align `harness/subagents/succession.py` away from `TypeName='self'` onto `/crosstalk` horizontal succession (`agyis crosstalk handoff --new`) and explicit specialist archetypes
+
+### Documentation & Website
+- docs(release): reconcile `README.md`, `roadmap.md`, `CHANGELOG.md`, `docs/taxonomy/project-ledger.md`, `docs/user_guide.md`, `docs/developer_guide.md`, `docs/official-specs/{cli-palette,cockpit-director,platform-surface-mapping,testing-contracts}.md`, `docs/runbooks/repo-onboarding.md`, `docs/adr/README.md`, `harness/rules/AGENTS.md`, `harness/agents/agyis_auditor.md`, `harness/skills/{subagent-router,psl-stack-python,crosstalk}/SKILL.md`, `website/**/*.html`, `website/data/{overview,manifest}.json`, `website/cognitive/cognitive.js`, and `v1.2.0` Open Graph cards (`2,732` hermetic tests across `135` modules, `31` logical subcommands / `32` subparsers, `33` modular skills)
+
+---
+
 ## [1.1.2] - 2026-11-27
 
 ### Features & Architecture
@@ -610,7 +626,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release candidate for Agyis Harness for Google Antigravity™.
 - Autonomous agent runtime harness, empirical audit telemetry pipeline, and lifecycle hooks immune system.
 
-[Unreleased]: https://github.com/kuasha420/agyis-harness/compare/v1.1.2...HEAD
+[Unreleased]: https://github.com/kuasha420/agyis-harness/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/kuasha420/agyis-harness/compare/v1.1.2...v1.2.0
 [1.1.2]: https://github.com/kuasha420/agyis-harness/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/kuasha420/agyis-harness/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/kuasha420/agyis-harness/compare/v1.0.0...v1.1.0

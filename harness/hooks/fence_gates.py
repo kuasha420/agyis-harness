@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import sqlite3
 import sys
 from typing import Optional
 
@@ -23,11 +22,18 @@ from harness.hooks.fence_classifiers import (
     check_has_mutable_code, is_cleanroom_contract_file, is_code_file,
     is_commit_or_pr_command, is_ephemeral_scratch_path, is_manifest_verified, is_test_file, normalize_role,
 )
+from harness.hooks.fence_dispatch import (
+    _classify_dispatched_subagents,
+    _emit_stop_deadlock_diagnostic,
+    _evaluate_orchestrator_stop,
+    _has_crosstalk_handoff,
+    _has_dispatched_subagents,
+    _resolve_isolated_native_dirs,
+)
 from harness.hooks.fence_state import clear_spec_dirty, get_brain_dir, load_state, save_state
 from harness.hooks.fence_tasks import sync_background_tasks
 from harness.hooks.role_lineage import resolve_hook_role_and_agent
 from harness.hooks.wire_compat import emit_stderr_diagnostic, enqueue_pending_advisory
-from harness.subagents.liveness import TEAMWORK_IGNORED_DIRS
 from harness.trajectory.health import (
     CONTEXT_WINDOW_TOKENS,
     SOFT_CHECKPOINT_STEP_ADVISORY,
@@ -35,17 +41,6 @@ from harness.trajectory.health import (
     get_scaled_step_horizon,
 )
 from harness.trajectory.sqlite_reader import read_db_trajectory_state, resolve_checkpoint_step_count
-from harness.trajectory.transcript_reader import (
-    extract_spawned_subagents,
-    find_transcript_path,
-    load_transcript_steps,
-)
-from harness.utils.context import (
-    get_active_app_data_dir,
-    get_active_brain_dir,
-    is_in_live_home_gemini,
-    is_in_temp_dir,
-)
 from harness.utils.workspace import is_harness_workspace
 
 _STOP_BYPASS_TERMINATION_REASONS: frozenset[str] = frozenset({
@@ -56,13 +51,6 @@ _STOP_BYPASS_TERMINATION_REASONS: frozenset[str] = frozenset({
     "MAX_FORCED_INVOCATIONS",
     "TERMINAL_CUSTOM_HOOK",
 })
-
-
-def _emit_stop_deadlock_diagnostic(conv_id: str, msg: str, state_dir: Path | None) -> dict:
-    """Emit Stop anti-deadlock diagnostic to stderr and bounded PreInvocation queue without phantom wire keys."""
-    emit_stderr_diagnostic(msg)
-    enqueue_pending_advisory(conv_id, msg, state_dir=state_dir)
-    return {"decision": "allow"}
 
 
 def check_pre_tool_use(
@@ -114,283 +102,6 @@ def check_pre_tool_use(
 
 
 check_completion_fence_pre_tool = check_pre_tool_use
-
-
-def _resolve_isolated_native_dirs(
-    effective_cwd: Path | str,
-    payload: Optional[dict],
-    eff_cid: str,
-    brain_dir: Optional[Path | str] = None,
-) -> tuple[Optional[Path], Optional[Path]]:
-    """
-    Resolves (brain_root, app_data_dir) for native subagent probing while preventing
-    /tmp test workspaces from leaking into host ~/.gemini/antigravity.
-    """
-    cwd_is_temp = is_in_temp_dir(Path(effective_cwd))
-    explicit_brain: Optional[Path] = None
-    explicit_app: Optional[Path] = None
-
-    if brain_dir is not None and str(brain_dir).strip():
-        cand = Path(os.path.expanduser(str(brain_dir).strip()))
-        explicit_brain = cand.parent if cand.name == eff_cid else cand
-    elif payload:
-        for k in ("brain_dir", "brainDirectory", "brainPath", "artifactDirectoryPath"):
-            val = payload.get(k)
-            if isinstance(val, str) and val.strip():
-                cand = Path(os.path.expanduser(val.strip()))
-                explicit_brain = cand.parent if cand.name == eff_cid else cand
-                break
-
-    if explicit_brain is None:
-        for env_k in ("ANTIGRAVITY_BRAIN_DIR", "GEMINI_BRAIN_DIR"):
-            val = (os.environ.get(env_k) or "").strip()
-            if val:
-                cand = Path(os.path.expanduser(val))
-                if not (cwd_is_temp and is_in_live_home_gemini(cand)):
-                    explicit_brain = cand.parent if cand.name == eff_cid else cand
-                    break
-
-    env_app = (os.environ.get("ANTIGRAVITY_APP_DATA_DIR") or "").strip()
-    if env_app:
-        cand_app = Path(os.path.expanduser(env_app))
-        if not (cwd_is_temp and is_in_live_home_gemini(cand_app)):
-            explicit_app = cand_app
-            if explicit_brain is None:
-                explicit_brain = cand_app / "brain"
-
-    if explicit_brain is None and explicit_app is None:
-        if cwd_is_temp:
-            return None, None
-        return get_active_brain_dir(), get_active_app_data_dir()
-
-    eff_app = explicit_app or (explicit_brain.parent if explicit_brain is not None else None)
-    return explicit_brain, eff_app
-
-
-def _classify_dispatched_subagents(
-    effective_cwd: Path | str,
-    payload: Optional[dict],
-    *,
-    conv_id: Optional[str] = None,
-    brain_dir: Optional[Path | str] = None,
-) -> str:
-    """Classifies subagent dispatches as 'legacy', 'native', or 'none'."""
-    teamwork_dir = Path(effective_cwd) / ".agents" / "teamwork"
-    if teamwork_dir.is_dir():
-        try:
-            for child in teamwork_dir.iterdir():
-                if child.is_dir() and not child.name.startswith(".") and child.name not in TEAMWORK_IGNORED_DIRS:
-                    return "legacy"
-        except OSError as exc:
-            sys.stderr.write(f"[AGYIS FENCE] Warning: Failed reading teamwork dir '{teamwork_dir}': {exc}\n")
-
-    if payload and (payload.get("subagents_dispatched") or payload.get("dispatched_subagents")):
-        return "legacy"
-
-    eff_cid = str(
-        conv_id
-        or (payload.get("conversationId") or payload.get("conversation_id") if isinstance(payload, dict) else "")
-        or ""
-    ).strip()
-    if not eff_cid or eff_cid == "default":
-        return "none"
-
-    eff_brain, eff_app = _resolve_isolated_native_dirs(
-        effective_cwd, payload, eff_cid, brain_dir=brain_dir
-    )
-    if eff_brain is None and eff_app is None:
-        return "none"
-
-    # a. Native swarm plan.json
-    if eff_brain is not None:
-        plan_path = eff_brain / eff_cid / ".system_generated" / "swarm" / "plan.json"
-        if plan_path.is_file():
-            try:
-                plan_data = json.loads(plan_path.read_text(encoding="utf-8", errors="replace"))
-                if isinstance(plan_data, dict):
-                    for key in ("workers", "members", "agents", "nodes"):
-                        items = plan_data.get(key)
-                        if isinstance(items, (list, dict)) and len(items) > 0:
-                            return "native"
-            except (OSError, json.JSONDecodeError, ValueError, TypeError):
-                pass
-
-        # b. Native transcript inspection (invoke_subagent / run_workflow / swarm add / manage_subagents spawn)
-        t_path, resolved_id = find_transcript_path(eff_cid, brain_dir=eff_brain)
-        if t_path is not None:
-            steps, _, _ = load_transcript_steps(t_path)
-            if extract_spawned_subagents(steps, parent_cid=resolved_id):
-                return "native"
-            for step in steps:
-                if not isinstance(step, dict):
-                    continue
-                raw_tcs = step.get("tool_calls") or step.get("toolCalls") or []
-                if not isinstance(raw_tcs, list):
-                    continue
-                for tc in raw_tcs:
-                    if not isinstance(tc, dict):
-                        continue
-                    t_name = str(tc.get("name") or "").strip()
-                    if t_name in ("invoke_subagent", "run_workflow"):
-                        return "native"
-                    t_args = tc.get("args") or tc.get("arguments") or {}
-                    if isinstance(t_args, str):
-                        try:
-                            t_args = json.loads(t_args)
-                        except (json.JSONDecodeError, ValueError, TypeError):
-                            t_args = {}
-                    if not isinstance(t_args, dict):
-                        continue
-                    action_val = str(t_args.get("action") or t_args.get("Action") or "").strip().lower()
-                    if t_name in ("swarm", "swarm_manage") and action_val == "add":
-                        return "native"
-                    if t_name == "manage_subagents" and action_val in ("spawn", "create", "start", "add", "launch"):
-                        return "native"
-
-    # c. Read-only conversation_summaries.db check (0.2s timeout)
-    if eff_app is not None:
-        summaries_db = eff_app / "conversation_summaries.db"
-        if summaries_db.is_file():
-            try:
-                conn = sqlite3.connect(f"file:{summaries_db.resolve()}?mode=ro", uri=True, timeout=0.2)
-                try:
-                    cur = conn.execute(
-                        "SELECT 1 FROM conversation_summaries WHERE parent_conversation_id = ? LIMIT 1",
-                        (eff_cid,),
-                    )
-                    if cur.fetchone() is not None:
-                        return "native"
-                finally:
-                    conn.close()
-            except sqlite3.Error:
-                pass
-
-    return "none"
-
-
-def _has_dispatched_subagents(
-    effective_cwd: Path | str,
-    payload: Optional[dict],
-    *,
-    conv_id: Optional[str] = None,
-    brain_dir: Optional[Path | str] = None,
-) -> bool:
-    """Returns True when subagents were dispatched via teamwork dirs, payload metadata, or native Antigravity tools."""
-    return _classify_dispatched_subagents(effective_cwd, payload, conv_id=conv_id, brain_dir=brain_dir) != "none"
-
-
-def _evaluate_orchestrator_stop(
-    state: dict,
-    effective_cwd: Path | str,
-    conv_id: str,
-    state_dir: Path | None,
-    brain_dir: Path | str | None,
-    payload: Optional[dict],
-) -> dict:
-    """Evaluates Pause Gate, Persona Truth Gate (legacy), and Gate 2 Auditor Verdict Fence for orchestrators."""
-    from harness.subagents.truth import (
-        has_active_native_subagents,
-        is_pause_gate_active,
-        validate_transition_payload_truth,
-    )
-
-    ws_path = Path(effective_cwd)
-    if is_pause_gate_active(ws_path):
-        return {"decision": "allow"}
-
-    dispatch_mode = _classify_dispatched_subagents(effective_cwd, payload, conv_id=conv_id, brain_dir=brain_dir)
-    if dispatch_mode == "none":
-        return {"decision": "allow"}
-
-    allow_synth = bool(os.environ.get("AGYIS_SYNTHETIC_TEST") == "1")
-    auditor_fence_disabled = (
-        os.environ.get("PSL_AUDITOR_FENCE_DISABLED", "").lower() in ("1", "true", "yes")
-        or os.environ.get("PSL_SOLO_MODE", "").lower() in ("1", "true", "yes")
-    )
-    truth_brain_root, _ = _resolve_isolated_native_dirs(effective_cwd, payload, conv_id, brain_dir=brain_dir)
-
-    def _enforce_gate2(verdict_reason: str, guidance: str) -> dict:
-        block_count = state.get("gate2_block_count", 0)
-        if block_count < 2:
-            state["gate2_block_count"] = block_count + 1
-            save_state(state, conv_id=conv_id, state_dir=state_dir)
-            return {
-                "decision": "continue",
-                "reason": f"Dual-Gate Verification Fence (Gate 2): {verdict_reason}. {guidance}",
-            }
-        state["gate2_block_count"] = 0
-        save_state(state, conv_id=conv_id, state_dir=state_dir)
-        return _emit_stop_deadlock_diagnostic(
-            conv_id,
-            "Anti-deadlock valve tripped after 2 Gate 2 verification blocks. Exiting despite missing/rejected auditor verdict.",
-            state_dir,
-        )
-
-    if dispatch_mode == "native":
-        from harness.subagents.verdict import validate_audit_verdict
-        effective_brain_dir = get_brain_dir(conv_id=conv_id, payload=payload, brain_dir=brain_dir)
-        is_verdict_valid, verdict_reason, _ = validate_audit_verdict(
-            ws_path, brain_dir=effective_brain_dir, allow_synthetic=allow_synth,
-        )
-        if is_verdict_valid:
-            state["block_count"] = 0
-            state["gate2_block_count"] = 0
-            save_state(state, conv_id=conv_id, state_dir=state_dir)
-            return {"decision": "allow"}
-        if (not state.get("code_dirty") and not state.get("spec_dirty")) or auditor_fence_disabled:
-            return {"decision": "allow"}
-        if has_active_native_subagents(ws_path, brain_dir=truth_brain_root, conv_id=conv_id):
-            return {"decision": "allow"}
-        return _enforce_gate2(
-            verdict_reason,
-            "Native subagents modified files; run agyis audit certify before claiming completion.",
-        )
-
-    is_truth_valid, truth_errors = validate_transition_payload_truth(
-        ws_path, brain_dir=truth_brain_root, conv_id=conv_id, allow_synthetic=allow_synth,
-    )
-    if not is_truth_valid:
-        block_count = state.get("block_count", 0)
-        if block_count < 2:
-            state["block_count"] = block_count + 1
-            save_state(state, conv_id=conv_id, state_dir=state_dir)
-            detail = (
-                "; ".join(truth_errors)
-                if truth_errors
-                else "no verified psl_stage_transition_payload.json was found on disk"
-            )
-            return {
-                "decision": "continue",
-                "reason": (
-                    f"Persona Truth Violation: {detail}. "
-                    "Subagents were dispatched in this session; root orchestrators cannot declare "
-                    "completion without verified delegate artifacts (Anti-Code-Monkey Invariant)."
-                ),
-            }
-        state["block_count"] = 0
-        save_state(state, conv_id=conv_id, state_dir=state_dir)
-        return _emit_stop_deadlock_diagnostic(
-            conv_id,
-            "Anti-deadlock valve tripped after 2 verification blocks. Exiting despite persona truth violation.",
-            state_dir,
-        )
-
-    if not auditor_fence_disabled:
-        from harness.subagents.verdict import validate_audit_verdict
-        effective_brain_dir = get_brain_dir(conv_id=conv_id, payload=payload, brain_dir=brain_dir)
-        is_verdict_valid, verdict_reason, _ = validate_audit_verdict(
-            ws_path, brain_dir=effective_brain_dir, allow_synthetic=allow_synth,
-        )
-        if not is_verdict_valid:
-            return _enforce_gate2(
-                verdict_reason,
-                "Root orchestrators and coordinators require independent out-of-band auditor "
-                "clearance (agyis audit certify) before claiming milestone completion.",
-            )
-        state["gate2_block_count"] = 0
-        save_state(state, conv_id=conv_id, state_dir=state_dir)
-
-    return {"decision": "allow"}
 
 
 def evaluate_commit_gate(
@@ -528,6 +239,9 @@ def _evaluate_handoff_gate(
 
     all_mods = set(state.get("last_modified_files", []) + state.get("turn_modified_files", []) + state.get("session_modified_files", []))
     for f in all_mods:
+        norm_f = str(f).replace("\\", "/").lower()
+        if ".agents/artifacts/crosstalk/" in norm_f:
+            continue
         p_name = Path(f).name.lower()
         if p_name == "handoff.md" or (p_name.startswith("handoff") and p_name.endswith(".md")):
             is_handoff_gate = True

@@ -23,12 +23,13 @@
   },
   "workspace_inventory": {
     "skills": {
-      "count": 32,
+      "count": 33,
       "names": [
         "agent-builder",
         "audio-ops",
         "cockpit-director",
         "code-review",
+        "crosstalk",
         "db-ops",
         "display-ops",
         "git-worktree-ops",

@@ -10,9 +10,11 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from harness.cli_parsers_crosstalk import register_crosstalk_parser
+
 
 def register_ops_parsers(subparsers: argparse._SubParsersAction) -> None:
-    """Register GUI, release, checkpoint, cockpit, clean, RE, and extension subparsers."""
+    """Register GUI, release, checkpoint, cockpit, clean, project, crosstalk, RE, and extension subparsers."""
     # gui
     p_gui = subparsers.add_parser(
         "gui",
@@ -740,6 +742,9 @@ def register_ops_parsers(subparsers: argparse._SubParsersAction) -> None:
     p_proj_ensure.add_argument(
         "--json", action="store_true", default=argparse.SUPPRESS, help="Output registration result in JSON format"
     )
+
+    # crosstalk
+    register_crosstalk_parser(subparsers)
 
     # re
     p_re = subparsers.add_parser(

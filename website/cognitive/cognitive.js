@@ -452,12 +452,13 @@ const ARCHITECTURAL_ROLE_PRESETS = {
   cleanroom: ["re-ops"],
 };
 
-// Ground-truth 32 workspace skills verified against overview.json.workspace_inventory.skills.names
+// Ground-truth 33 workspace skills verified against overview.json.workspace_inventory.skills.names
 const SKILL_CATALOG = {
   "agent-builder": { category: "workflow", desc: "Interactive creation, scaffolding, and validation of custom codebase-aware specialist subagents under <= 20 tool ceiling." },
   "audio-ops": { category: "ops", desc: "PipeWire, WirePlumber, Bluetooth audio codecs, wpctl sink diagnostics, and EBU R128 loudnorm normalization." },
   "cockpit-director": { category: "workflow", desc: "Root flight deck pairing protocol, milestone decomposition, 12-route dispatch, and compaction runway governance." },
   "code-review": { category: "workflow", desc: "Delta-focused code review and PR comment resolution protocol preventing full-repository re-reading loops." },
+  "crosstalk": { category: "workflow", desc: "Cross-conversation and cross-project sanitized baton handoff (/crosstalk), Desktop+CLI discovery, Generative UI widgets, and soft archiving." },
   "db-ops": { category: "ops", desc: "PostgreSQL, SQLite, and Docker DB diagnostics, lock inspection, WAL maintenance, and port 5432 collision auto-rebind." },
   "display-ops": { category: "ops", desc: "Wayland connector probing (kscreen-doctor), graceful XDG portal recovery, Electron Ozone flags, and Sunshine KMS." },
   "git-worktree-ops": { category: "ops", desc: "Isolated multi-branch Git worktree creation, cleanup, orphan pruning, stash hygiene, and index.lock recovery." },

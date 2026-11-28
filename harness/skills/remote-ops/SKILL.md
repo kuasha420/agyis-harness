@@ -126,3 +126,6 @@ agyis remote socket cleanup
 - **Zero Unbounded Logs**: Never run naked `tail -f` or unconstrained `journalctl`. Always specify `--lines 50` or pipe through `head`/`tail`.
 - **Zero Remote File Pollution**: Favor stdin streaming over manual `scp` + `chmod +x` + execution. When staging is necessary, always verify the `trap 'rm -rf ...' EXIT` handler.
 - **Strict User-Space Sockets**: Never configure socket paths in root directories. Keep them inside `~/.cache/psl/ssh/` with `0700` permissions.
+
+### Cross-Session Handoff (`/crosstalk`)
+When transferring host triage findings or service recovery steps to a sibling project or fresh thread, dispatch via `agyis crosstalk handoff --dry-run` (review redacted output before `--send`) so host paths, tokens, and `.env`/key references never leak across boundaries.

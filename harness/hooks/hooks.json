@@ -109,6 +109,13 @@
         "command": "python3 -m harness.hooks.runner pre-invocation",
         "timeout": 5
       }
+    ],
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "python3 -m harness.hooks.runner pre-invocation",
+        "timeout": 5
+      }
     ]
   }
 }

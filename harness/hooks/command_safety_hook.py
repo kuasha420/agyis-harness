@@ -40,6 +40,7 @@ from harness.hooks.inline_script_guard import (
     split_shell_pipes,
 )
 from harness.hooks.resource_semaphore import evaluate_resource_semaphore
+from harness.hooks.wire_compat import emit_stderr_diagnostic, enqueue_pending_advisory
 from harness.hooks.mcp_normalizer import (
     FILE_PATH_TOOLS,
     REA_BYTE_TOOLS,
@@ -107,7 +108,98 @@ RUN_COMMAND_ALLOWED_KEYS: frozenset[str] = frozenset({
     "NotificationTimeoutSeconds",
 })
 
+_CONV_SVC_RPC_RE = re.compile(
+    r"\bConversationService/(DeleteConversation|CreateConversation|UpdateConversation|GetConversation|ListConversations)\b"
+)
+_LS_SEND_RE = re.compile(
+    r"\b(?:LanguageServerService/SendUserCascadeMessage|agentapi\s+(?:send-message|new-conversation))\b"
+)
+_AGYIS_CROSSTALK_RE = re.compile(r"\b(?:agyis|psl)\s+crosstalk\b")
+_HOP_MARKER_RE = re.compile(r"(?:\[CROSSTALK-HOP:\s*(\d+)\s*/\s*(\d+)\]|--hop(?:=|\s+)(\d+))", re.IGNORECASE)
+_SENSITIVE_XP_RE = re.compile(
+    r"(?:\.dirtyroom\b|ANTIGRAVITY_CSRF_TOKEN=[^\s$'\"]+|x-antigravity-csrf-token\s*:\s*[0-9a-fA-F\-]{8,}|(?:^|[\s'\"/])\.env(?:\.\w+)?\b|\.(?:key|pem)\b)",
+    re.IGNORECASE,
+)
+_CROSSTALK_FROM_RE = re.compile(r"--from(?:=|\s+)([A-Za-z0-9_\-]+)")
+_CROSSTALK_TO_RE = re.compile(r"(?:--to|--target)(?:=|\s+)([A-Za-z0-9_\-]+)")
+
 _ACTIVE_CONVO_ID: Optional[str] = None
+
+
+def evaluate_crosstalk_command_advisory(
+    cmd: str,
+    conv_id: Optional[str] = None,
+    workspace_dir: Optional[Path] = None,
+) -> Optional[Tuple[str, Optional[str]]]:
+    """Emits advisory-only (non-blocking) guidance for raw ConversationService/crosstalk shell calls (D6)."""
+    if not cmd or not any(
+        tok in cmd
+        for tok in ("ConversationService", "SendUserCascadeMessage", "agentapi", "crosstalk", "CROSSTALK-HOP")
+    ):
+        return None
+
+    rpc_m = _CONV_SVC_RPC_RE.search(cmd)
+    ls_m = _LS_SEND_RE.search(cmd)
+    is_xt = bool(_AGYIS_CROSSTALK_RE.search(cmd))
+    hop_m = _HOP_MARKER_RE.search(cmd)
+    if not (rpc_m or ls_m or is_xt or hop_m):
+        return None
+
+    notes: List[str] = []
+    banners: List[str] = []
+
+    if rpc_m:
+        rpc = rpc_m.group(1)
+        if rpc == "DeleteConversation":
+            notes.append(
+                "Raw ConversationService/DeleteConversation detected. Prefer soft archiving via "
+                "'agyis crosstalk archive <id>' (UpdateConversation archived=true) instead of irreversible deletion."
+            )
+            banners.append("Prefer `agyis crosstalk archive` over raw `DeleteConversation`.")
+        else:
+            notes.append(
+                f"Raw ConversationService/{rpc} shell call detected. Prefer 'agyis crosstalk' "
+                "(list/inspect/handoff/send/archive) for target resolution, hop budgets, and secret redaction."
+            )
+            banners.append(f"Prefer `agyis crosstalk` over raw `ConversationService/{rpc}`.")
+        if rpc in ("CreateConversation", "DeleteConversation") and is_pause_gate_active(workspace_dir):
+            notes.append("Active pause_gate.json detected; defer spawning or deleting threads until /resume.")
+    elif ls_m:
+        notes.append(
+            "Raw cross-thread messaging shell call detected. Prefer 'agyis crosstalk send' for target validation and payload hygiene."
+        )
+
+    if hop_m:
+        hop_n = int(hop_m.group(1) or hop_m.group(3))
+        hop_max = int(hop_m.group(2)) if hop_m.group(2) else 2
+        if hop_n > 2 or (hop_max > 0 and hop_n >= hop_max and hop_n > 1):
+            notes.append(
+                f"Crosstalk hop budget ({hop_n}/{hop_max}) reaches or exceeds MAX_CROSSTALK_HOPS (2). "
+                "Consolidate back to the origin thread instead of chaining deeper hops."
+            )
+            banners.append(f"Hop `{hop_n}/{hop_max}` reaches MAX_CROSSTALK_HOPS (`2`).")
+
+    from_m = _CROSSTALK_FROM_RE.search(cmd)
+    to_m = _CROSSTALK_TO_RE.search(cmd)
+    from_id = from_m.group(1) if from_m else None
+    to_id = to_m.group(1) if to_m else None
+    eff_cid = conv_id if (conv_id and conv_id != "default") else None
+    if (from_id and to_id and from_id == to_id) or (eff_cid and to_id and to_id == eff_cid):
+        notes.append("Potential crosstalk self-target cycle detected; target a distinct conversation or resume locally.")
+        banners.append("Potential crosstalk self-target cycle detected.")
+
+    if (rpc_m or ls_m or is_xt) and _SENSITIVE_XP_RE.search(cmd):
+        notes.append(
+            "Sensitive path or literal credential pattern (.dirtyroom/.env/key/token) detected in cross-thread command; "
+            "route payloads through 'agyis crosstalk' redaction."
+        )
+        banners.append("Sensitive `.dirtyroom`/secret pattern detected in cross-thread command.")
+
+    if not notes:
+        return None
+    model_msg = "[AGYIS CROSSTALK ADVISORY] " + " ".join(notes)
+    user_md = ("> **Agyis Crosstalk Notice**: " + " ".join(banners)) if banners else None
+    return model_msg, user_md
 
 
 def check_preflight_tool_availability(cmd: str) -> Dict[str, Any]:
@@ -305,12 +397,17 @@ def sanitize_command(raw_cmd: str, check_preflight: bool = False, promote_scratc
                     modified_cmd = f'export PATH="{hb_esc}:$PATH"; {modified_cmd}'
                     reasons.append("injected hermetic CPython >= 3.12 for PEP 701 f-string safety")
 
-    if modified_cmd == original_cmd:
+    xt_adv = evaluate_crosstalk_command_advisory(modified_cmd, conv_id=_ACTIVE_CONVO_ID, workspace_dir=workspace_dir)
+    if xt_adv is not None:
+        reasons.append(xt_adv[0])
+
+    if modified_cmd == original_cmd and not reasons:
         return ("allow", None, None)
-    hints = [r for r in reasons if r.startswith("[AGYIS COGNITIVE HINT]")]
-    others = [r for r in reasons if not r.startswith("[AGYIS COGNITIVE HINT]")]
+    hints = [r for r in reasons if r.startswith(("[AGYIS COGNITIVE HINT]", "[AGYIS CROSSTALK ADVISORY]"))]
+    others = [r for r in reasons if not r.startswith(("[AGYIS COGNITIVE HINT]", "[AGYIS CROSSTALK ADVISORY]"))]
     out_parts = (["[AGYIS COMMAND SAFETY] " + "; ".join(others)] if others else []) + hints
-    return ("allow", modified_cmd, "; ".join(out_parts) if out_parts else None)
+    mod_out = None if modified_cmd == original_cmd else modified_cmd
+    return ("allow", mod_out, "; ".join(out_parts) if out_parts else None)
 
 
 check_command_safety = sanitize_command
@@ -460,11 +557,23 @@ def main() -> None:
         if sem_cmd is not None:
             effective_cmd, mod_cmd = sem_cmd, sem_cmd
             reason = "; ".join(p for p in (reason, sem_rsn) if p)
+
+        xt_adv = evaluate_crosstalk_command_advisory(raw_cmd, conv_id=_ACTIVE_CONVO_ID, workspace_dir=ws_dir)
+        if xt_adv is not None:
+            xt_msg, xt_umd = xt_adv
+            emit_stderr_diagnostic(xt_msg)
+            eff_cid = _ACTIVE_CONVO_ID or get_active_conversation_id() or "default"
+            enqueue_pending_advisory(eff_cid, xt_msg, user_markdown=xt_umd)
+            if not reason or xt_msg not in reason:
+                reason = "; ".join(p for p in (reason, xt_msg) if p)
+
         all_reasons = list(args_reasons) + ([reason] if reason else [])
         if tool_name == "run_command" and (args_modified or mod_cmd is not None):
             print(json.dumps({"decision": "allow", "overwrite": {**sanitized_args, "CommandLine": effective_cmd}, **({"reason": "; ".join(all_reasons)} if all_reasons else {})}))
         elif mod_cmd is not None:
             print(json.dumps({"decision": "allow", "overwrite": {"CommandLine": mod_cmd}, **({"reason": reason} if reason else {})}))
+        elif all_reasons:
+            print(json.dumps({"decision": "allow", "reason": "; ".join(all_reasons)}))
         else:
             print(json.dumps({"decision": "allow"}))
     finally:

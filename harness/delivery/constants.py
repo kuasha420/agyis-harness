@@ -58,6 +58,7 @@ SYNC_SURFACE_ITEMS: tuple[str, ...] = (
 
 GIT_EXCLUDE_PATTERNS: tuple[str, ...] = (
     ".agents/artifacts/",
+    ".agents/artifacts/crosstalk/",
     ".agents/teamwork/",
     ".agents/archive/",
     "*.patch",

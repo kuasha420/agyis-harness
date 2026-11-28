@@ -22,6 +22,7 @@ from harness.hooks.role_pinning import (
     _CANONICAL_ROLE_BUCKETS,
     _EPHEMERAL_CIDS,
     check_pillar_3_explicit_role,
+    extract_crosstalk_role_from_payload,
     has_parent_conversation,
     load_sticky_role_state,
     resolve_cid_state_dir,
@@ -145,6 +146,18 @@ def resolve_hook_role_and_agent(
     eff_cid, art_brain = resolve_conv_and_brain(eff_payload, conv_id)
     eff_brain = brain_dir or (art_brain.parent if (art_brain is not None and art_brain.name == eff_cid) else None)
     has_cid = bool(eff_cid and eff_cid not in _EPHEMERAL_CIDS)
+
+    if norm_role is None:
+        xt_role, xt_raw = extract_crosstalk_role_from_payload(
+            eff_payload,
+            conversation_id=eff_cid if has_cid else "",
+            db_dir=db_dir,
+            brain_dir=eff_brain,
+        )
+        if xt_role:
+            norm_role = xt_role
+            if exact_agent is None and xt_raw and xt_raw.lower() not in _CANONICAL_ROLE_BUCKETS:
+                exact_agent = xt_raw
 
     if has_cid or brain_dir is not None or db_dir is not None or has_parent_conversation(eff_payload, eff_cid, brain_dir=eff_brain, db_dir=db_dir):
         parent_cid, db_agent_name, depth = (

@@ -1042,14 +1042,17 @@ class TestResilienceAndContinuitySkills(unittest.TestCase):
         )
         self.assertEqual(
             GROUP_PRESETS["continuity"],
-            ["graceful-parking", "milestone-handoff", "git-worktree-ops"],
+            ["graceful-parking", "milestone-handoff", "git-worktree-ops", "crosstalk"],
         )
 
         resilience_synced = resolve_skills_to_sync(group="resilience")
         self.assertEqual(resilience_synced, ["powerloss-resume", "db-ops", "storage-ops"])
 
         continuity_synced = resolve_skills_to_sync(group="continuity")
-        self.assertEqual(continuity_synced, ["graceful-parking", "milestone-handoff", "git-worktree-ops"])
+        self.assertEqual(
+            continuity_synced,
+            ["graceful-parking", "milestone-handoff", "git-worktree-ops", "crosstalk"],
+        )
 
 
 class TestReOpsSkillAndPresets(unittest.TestCase):

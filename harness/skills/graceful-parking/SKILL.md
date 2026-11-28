@@ -120,3 +120,6 @@ To resume a quiescent swarm:
    ```
 3. **Deactivate Pause Gate**:
    Remove `.agents/artifacts/pause_gate.json` (or `.pause_gate`) once agents acknowledge resumption.
+
+### Cross-Session Warm Handoff (`/crosstalk`)
+- When handing off a parked workspace into a fresh top-level thread or sibling project instead of resuming in-place, run `agyis crosstalk handoff --new --include-checkpoint --dry-run` (then `--send` after preflight review) and inspect `agyis crosstalk status`.

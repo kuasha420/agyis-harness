@@ -111,7 +111,13 @@ All stage handoffs along the execution pipeline must conform to the formal schem
 Scaled proportionally across `512k`/`1M` context windows (`SOFT_CHECKPOINT_STEP_ADVISORY = 80`):
 1. **🟢 Healthy Zone (<70% tokens and <80 checkpoint steps)**: Normal autonomous operations and subagent dispatches.
 2. **🟡 Amber Zone (~70% – 89% tokens or >=80 checkpoint steps)**: Soft convergence advisory. Complete active stages; commit in-flight diffs cleanly.
-3. **🔴 Compaction Imminent (>=90% tokens or Spawns >= 16)**: PreInvocation hook injects `systemMessage` advisory. Materialize working memory via `agyis checkpoint generate` (`harness.delivery.compaction_checkpoint`) to `.agents/artifacts/compaction_checkpoint_latest.md`. Prompt operator for `/compact` or invoke horizontal succession (`invoke_subagent` / `swarm` fork).
+3. **🔴 Compaction Imminent (>=90% tokens or Spawns >= 16)**: PreInvocation hook injects `systemMessage` advisory. Materialize working memory via `agyis checkpoint generate` (`harness.delivery.compaction_checkpoint`) to `.agents/artifacts/compaction_checkpoint_latest.md`. Prompt operator for `/compact` or invoke horizontal succession via `/crosstalk` (`agyis crosstalk handoff --new`) or a registered specialist archetype (`TypeName="agyis_coordinator"`, `Workspace="inherit"`) / `swarm` `fork` (never `TypeName="self"`).
+
+### Horizontal Succession and 4-Way Native Routing (`/crosstalk`)
+- **`invoke_subagent`**: Vertical specialist worker inside current session (`Workspace="share"`/`"inherit"`).
+- **`/swarm` (`run_workflow`)**: Multi-worker parallel DAG + blackboard inside current campaign.
+- **`conversations` (Native)**: Read-only platform lookup of Desktop threads when available.
+- **`/crosstalk` (`agyis crosstalk`)**: Horizontal context succession (`--new`), cross-project sanitized baton handoff (`--to <repo>`), Desktop+CLI discovery, and mid-flight steering (`send`).
 
 ### Autonomous Post-Compaction Continuation Directive
 When waking up in a compacted session or successor context:

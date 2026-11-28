@@ -41,7 +41,7 @@ class TestHooksSummaryAndStatusRender(unittest.TestCase):
         by_name = {b["name"]: b for b in blocks}
         self.assertIn("psl-compaction-advisory", by_name)
         advisory = by_name["psl-compaction-advisory"]
-        self.assertEqual(advisory["events"], ["PreInvocation"])
+        self.assertEqual(advisory["events"], ["PreInvocation", "SessionStart"])
         self.assertEqual(advisory["checks"], ["pre-invocation"])
 
         fence = by_name["psl-stop-verification-fence"]

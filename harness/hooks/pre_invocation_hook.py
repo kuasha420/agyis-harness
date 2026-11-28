@@ -47,7 +47,11 @@ from harness.hooks.role_pinning import (
     resolve_conv_and_brain,
     save_sticky_role_state,
 )
-from harness.hooks.wire_compat import drain_pending_advisories
+from harness.hooks.wire_compat import (
+    build_system_message_step,
+    drain_pending_advisories,
+    drain_pending_advisory_steps,
+)
 from harness.trajectory import (
     CONTEXT_WINDOW_TOKENS,
     ROLE_DEEP_EXECUTION,
@@ -64,6 +68,7 @@ from harness.trajectory import (
     resolve_checkpoint_step_count,
 )
 from harness.utils.state import atomic_write_json, sanitize_conv_id
+from harness.ux.pills import conversation_pill
 
 DEFAULT_COMPACTION_ADVISORY_THRESHOLD: int = 230_000
 DEFAULT_SQLITE_TIMEOUT: float = 0.5
@@ -251,6 +256,246 @@ def _should_emit_horizon_advisory(
     return True
 
 
+def _collect_workspaces(payload: Dict[str, Any], explicit_ws: Optional[Path]) -> List[Path]:
+    """Collects ordered unique workspace paths without falling back to CWD."""
+    cands: List[Path] = []
+    seen: set[str] = set()
+    raw_items: List[Any] = [str(explicit_ws)] if explicit_ws is not None else []
+    raw_items.extend(payload.get(k) for k in ("workspace", "workspacePath", "cwd"))
+    for k in ("workspacePaths", "activeWorkspaces", "workspace_paths", "active_workspaces"):
+        if isinstance((lst := payload.get(k)), (list, tuple)):
+            raw_items.extend(lst)
+    for item in raw_items:
+        raw = item if isinstance(item, str) else (item.get("path") if isinstance(item, dict) else None)
+        if isinstance(raw, str) and raw.strip():
+            p = Path(os.path.expanduser(raw.strip()))
+            if str(p) not in seen:
+                seen.add(str(p))
+                cands.append(p)
+    return cands
+
+
+def is_session_start_event(payload: Dict[str, Any]) -> bool:
+    """Returns True when payload represents a SessionStart lifecycle hook invocation."""
+    if not isinstance(payload, dict):
+        return False
+    event = str(
+        payload.get("hookEventName") or payload.get("hookEvent") or payload.get("hook_event") or payload.get("event") or ""
+    ).strip().lower().replace("-", "").replace("_", "")
+    return event == "sessionstart"
+
+
+def _read_baton_json(path: Path) -> Optional[Dict[str, Any]]:
+    try:
+        if not path.is_file() or not (0 < path.stat().st_size <= 131_072):
+            return None
+        data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+        return data if isinstance(data, dict) else None
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+
+
+def _mark_baton_consumed(path: Path, data: Dict[str, Any], conv_id: str) -> None:
+    updated = dict(data)
+    updated["consumed"] = True
+    updated["consumed_at"] = time.time()
+    if conv_id and conv_id != "default":
+        updated["consumed_by"] = conv_id
+    try:
+        atomic_write_json(path, updated, indent=2)
+    except OSError as exc:
+        sys.stderr.write(f"[AGYIS SESSION START] Warning: Failed marking baton consumed '{path}': {exc}\n")
+
+
+def _is_fresh_latest_baton(data: Dict[str, Any], path: Path, max_age_s: float = 3600.0) -> bool:
+    from datetime import datetime
+    ts: Optional[float] = None
+    for tk in ("created_at", "timestamp", "createdAt", "ts"):
+        val = data.get(tk)
+        if isinstance(val, (int, float)) and not isinstance(val, bool) and val > 0:
+            fval = float(val)
+            ts = fval / 1e6 if fval > 1e14 else (fval / 1e3 if fval > 1e11 else fval)
+            break
+        if isinstance(val, str) and val.strip():
+            try:
+                ts = float(val.strip())
+                break
+            except ValueError:
+                try:
+                    ts = datetime.fromisoformat(val.strip().replace("Z", "+00:00")).timestamp()
+                    break
+                except (ValueError, TypeError):
+                    pass
+    if ts is None:
+        try:
+            ts = path.stat().st_mtime
+        except OSError:
+            return False
+    return (time.time() - ts) <= max_age_s
+
+
+def _latest_baton_matches_workspaces(data: Dict[str, Any], ws: Path, active_ws: List[Path]) -> bool:
+    declared: List[str] = [
+        v.strip() for k in ("to_workspace", "target_workspace", "workspace_path", "workspace")
+        if isinstance((v := data.get(k)), str) and v.strip()
+    ]
+    for item in (data.get("workspacePaths") or data.get("workspace_paths") or []):
+        raw = item if isinstance(item, str) else (item.get("path") if isinstance(item, dict) else None)
+        if isinstance(raw, str) and raw.strip():
+            declared.append(raw.strip())
+    if not declared:
+        return True
+    active_resolved = {ws.resolve()}
+    for aws in active_ws:
+        try:
+            active_resolved.add(aws.resolve())
+        except OSError:
+            pass
+    for raw_p in declared:
+        dp = Path(os.path.expanduser(raw_p))
+        try:
+            if dp.resolve() in active_resolved:
+                return True
+        except OSError:
+            if str(dp) == str(ws):
+                return True
+    return False
+
+
+def _consume_inbound_baton(conv_id: str, workspaces: List[Path]) -> Optional[Tuple[Dict[str, Any], Path, Path]]:
+    """Finds and atomically marks one unconsumed inbound crosstalk baton as consumed."""
+    for ws in workspaces:
+        xt_dir = ws / ".agents" / "artifacts" / "crosstalk"
+        if not xt_dir.is_dir():
+            continue
+        consumed_sig: Optional[Tuple[Any, Any, Any]] = None
+        if conv_id and conv_id != "default":
+            cands = list(dict.fromkeys([xt_dir / f"inbound_{sanitize_conv_id(conv_id)}.json", xt_dir / f"inbound_{conv_id}.json"]))
+            for cand in cands:
+                if (data := _read_baton_json(cand)) is None:
+                    continue
+                if data.get("consumed") or data.get("consumed_at") or data.get("consumed_by"):
+                    consumed_sig = (
+                        data.get("baton_id"),
+                        str(data.get("from_cid") or data.get("origin_cid") or data.get("source_cid") or "").strip(),
+                        data.get("created_at") or data.get("timestamp"),
+                    )
+                    continue
+                _mark_baton_consumed(cand, data, conv_id)
+                return data, cand, ws
+
+        latest_path = xt_dir / "inbound_latest.json"
+        if (data := _read_baton_json(latest_path)) is None:
+            continue
+        if data.get("consumed") or data.get("consumed_at") or data.get("consumed_by"):
+            continue
+        target_cid = str(data.get("target_cid") or data.get("to_cid") or data.get("conversation_id") or "").strip()
+        from_cid = str(data.get("from_cid") or data.get("origin_cid") or data.get("source_cid") or "").strip()
+        if (target_cid and conv_id != "default" and target_cid != conv_id) or (from_cid and conv_id != "default" and from_cid == conv_id):
+            continue
+        sig = (data.get("baton_id"), from_cid, data.get("created_at") or data.get("timestamp"))
+        if consumed_sig is not None and any(consumed_sig) and sig == consumed_sig:
+            continue
+        if not _is_fresh_latest_baton(data, latest_path) or not _latest_baton_matches_workspaces(data, ws, workspaces):
+            continue
+        _mark_baton_consumed(latest_path, data, conv_id)
+        return data, latest_path, ws
+    return None
+
+
+def _build_crosstalk_session_boot_step(baton: Dict[str, Any], baton_file: Path, ws: Path) -> Dict[str, Any]:
+    """Formats one-shot user_markdown handover banner and compact model systemMessage."""
+    from_cid = str(baton.get("from_cid") or baton.get("origin_cid") or baton.get("source_cid") or "").strip()
+    from_title = str(baton.get("from_title") or baton.get("origin_title") or baton.get("title") or "Origin").strip() or "Origin"
+    from_proj = str(baton.get("from_project") or baton.get("source_project") or baton.get("from_repo") or "").strip()
+    to_proj = str(baton.get("to_project") or baton.get("target_project") or baton.get("to_repo") or ws.name or "workspace").strip()
+    hop, max_hops = int(baton.get("hop", 1) or 1), int(baton.get("max_hops", 2) or 2)
+    role_hint = str(baton.get("role_hint") or baton.get("role") or "").strip()
+    cp_raw = str(baton.get("checkpoint_path") or baton.get("checkpoint") or "").strip()
+    baton_ref = str(baton.get("baton_path") or baton.get("artifact_path") or baton_file).strip()
+    intent = str(baton.get("intent") or baton.get("summary") or "").strip()
+    redacted_flag = bool(baton.get("redacted")) or bool(str(baton.get("redaction_summary") or "").strip())
+
+    safe_origin_title = (
+        re.sub(r"\s+", " ", re.sub(r"[\r\n\t\x00-\x1f\x7f]+", " ", from_title))
+        .strip()
+        .replace("[", "(")
+        .replace("]", ")")[:120]
+        or "Origin"
+    )
+    if from_cid:
+        try:
+            origin_pill = conversation_pill(from_cid, from_title, surface="desktop")
+        except ValueError:
+            origin_pill = safe_origin_title
+    else:
+        origin_pill = safe_origin_title
+    proj_badge = f"`{from_proj}` -> `{to_proj}`" if from_proj else f"`{to_proj}`"
+    privacy_badge = " · Redacted OK" if redacted_flag else ""
+    cp_pill = ""
+    if cp_raw:
+        cp_url = cp_raw if cp_raw.startswith(("file://", "http://", "https://")) else f"file://{Path(cp_raw) if Path(cp_raw).is_absolute() else (ws / cp_raw)}"
+        cp_pill = f" · [Checkpoint]({cp_url})"
+
+    user_markdown = f"> **Crosstalk Baton** from {origin_pill} ({proj_badge} · Hop `{hop}/{max_hops}`{privacy_badge}){cp_pill}"
+    model_lines = [
+        "[AGYIS CROSSTALK SESSION BOOT]",
+        f"Role Hint: {role_hint or 'general'} | Hop Budget: {hop}/{max_hops} (remaining: {max(0, max_hops - hop)})",
+        f"Baton Artifact: {baton_ref}" + (f" | Checkpoint: {cp_raw}" if cp_raw else ""),
+    ]
+    if intent:
+        model_lines.append(f"Intent: {intent[:160]}")
+    return build_system_message_step("\n".join(model_lines), user_markdown=user_markdown)
+
+
+def _drain_cid_pending_steps(conv_id: str, state_dir: Optional[Path]) -> List[Dict[str, Any]]:
+    has_state_env = any((os.environ.get(k) or "").strip() for k in ("AGYIS_HARNESS_STATE_DIR", "PSL_HARNESS_STATE_DIR", "PLUGIN_DATA"))
+    if conv_id == "default" and not has_state_env:
+        return []
+    steps = drain_pending_advisory_steps(conv_id)
+    if state_dir is not None and conv_id != "default":
+        for extra in drain_pending_advisory_steps(conv_id, state_dir=state_dir):
+            if extra not in steps:
+                steps.append(extra)
+    return steps
+
+
+def evaluate_session_start(
+    payload_str: Union[str, bytes, bytearray, Dict[str, Any]] = "",
+    db_dir: Optional[Path] = None,
+    workspace_dir: Optional[Path] = None,
+    sqlite_timeout: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Evaluates SessionStart for one-shot inbound crosstalk handover banners and queued advisories."""
+    payload = _parse_payload(payload_str)
+    try:
+        conv_id, brain_path = resolve_conv_and_brain(payload, str(payload.get("conversationId") or payload.get("conversation_id") or ""))
+        eff_ws, workspaces = _resolve_workspace(payload, workspace_dir), _collect_workspaces(payload, workspace_dir)
+        state_dir = resolve_cid_state_dir(conv_id, eff_ws, payload) or (brain_path / ".agyis" if brain_path else None)
+        inject_steps: List[Dict[str, Any]] = []
+
+        if (consumed := _consume_inbound_baton(conv_id, workspaces)) is not None:
+            baton, baton_file, matched_ws = consumed
+            inject_steps.append(_build_crosstalk_session_boot_step(baton, baton_file, matched_ws))
+            raw_role = str(baton.get("role_hint") or baton.get("role") or "").strip()
+            norm_role = normalize_role_str(raw_role) if raw_role else None
+            if norm_role and state_dir and conv_id != "default" and not load_sticky_role_state(state_dir, conv_id):
+                ag_name = raw_role if raw_role.lower() not in (
+                    ROLE_DEEP_EXECUTION, ROLE_FLIGHT_DIRECTOR, ROLE_FORENSIC_AUDITOR, ROLE_SWARM_ORCHESTRATOR,
+                ) else None
+                save_sticky_role_state(state_dir, {
+                    "conversation_id": conv_id, "checkpoint": 0, "role": norm_role,
+                    "agent_name": ag_name, "parent_conversation_id": None,
+                    "source": "crosstalk_baton", "is_fallback": False, "pinned_at": time.time(),
+                })
+
+        inject_steps.extend(_drain_cid_pending_steps(conv_id, state_dir))
+        return {"injectSteps": inject_steps}
+    except Exception as exc:
+        sys.stderr.write(f"[AGYIS SESSION START] Unexpected evaluation error: {exc}\n")
+        return {"injectSteps": []}
+
+
 def evaluate_pre_invocation(
     payload_str: Union[str, bytes, bytearray, Dict[str, Any]] = "",
     threshold: Optional[int] = None,
@@ -258,8 +503,15 @@ def evaluate_pre_invocation(
     workspace_dir: Optional[Path] = None,
     sqlite_timeout: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """Evaluates PreInvocation event for sticky role pinning, soft checkpoint horizon, and compaction alerts."""
+    """Evaluates PreInvocation (and SessionStart) events for handover banners, role pinning, and compaction alerts."""
     payload = _parse_payload(payload_str)
+    if is_session_start_event(payload):
+        return evaluate_session_start(
+            payload,
+            db_dir=db_dir,
+            workspace_dir=workspace_dir,
+            sqlite_timeout=sqlite_timeout,
+        )
     try:
         conv_id, brain_path = resolve_conv_and_brain(payload, str(payload.get("conversationId") or payload.get("conversation_id") or ""))
         eff_ws = _resolve_workspace(payload, workspace_dir)
@@ -390,9 +642,9 @@ def evaluate_pre_invocation(
         inject_steps: List[Dict[str, Any]] = []
 
         if is_post_compaction:
-            inject_steps.append({"systemMessage": {"systemMessage": build_post_compaction_persona_prompt(role, checkpoint_path=cp_rel), "metadata": {}}})
+            inject_steps.append(build_system_message_step(build_post_compaction_persona_prompt(role, checkpoint_path=cp_rel)))
         elif has_explicit_step and step_count == 0:
-            inject_steps.append({"systemMessage": {"systemMessage": build_role_persona_prompt(role), "metadata": {}}})
+            inject_steps.append(build_system_message_step(build_role_persona_prompt(role)))
         elif has_explicit_step and step_count is not None and step_count > 0:
             horizon = get_scaled_step_horizon(max_ctx)
             horizon_cadence = max(25, horizon // 4)
@@ -407,9 +659,9 @@ def evaluate_pre_invocation(
             if emit_horizon:
                 reanchor = build_role_reanchor_advisory(role, step_count, cadence)
                 soft_adv = f"[AGYIS CHECKPOINT HORIZON ADVISORY: Checkpoint step {step_count}/{horizon} — consider verifying diff & checkpoints]"
-                inject_steps.append({"systemMessage": {"systemMessage": f"{soft_adv}\n\n{reanchor}", "metadata": {}}})
+                inject_steps.append(build_system_message_step(f"{soft_adv}\n\n{reanchor}"))
             elif step_count % cadence == 0:
-                inject_steps.append({"systemMessage": {"systemMessage": build_role_reanchor_advisory(role, step_count, cadence), "metadata": {}}})
+                inject_steps.append(build_system_message_step(build_role_reanchor_advisory(role, step_count, cadence)))
 
         is_specialist_stage = bool(stage_role_data and stage_num > 0 and conv_id != "default" and stage_cid == conv_id)
         eff_brain_parent = brain_path.parent if (brain_path is not None and brain_path.name == conv_id) else None
@@ -448,7 +700,7 @@ def evaluate_pre_invocation(
                     sys.stderr.flush()
 
             if not already_alerted:
-                inject_steps.append({"systemMessage": {"systemMessage": build_compaction_advisory(role, tokens, eff_thresh, max_context_tokens=max_ctx, checkpoint_path=cp_rel, is_subagent=is_subagent), "metadata": {}}})
+                inject_steps.append(build_system_message_step(build_compaction_advisory(role, tokens, eff_thresh, max_context_tokens=max_ctx, checkpoint_path=cp_rel, is_subagent=is_subagent)))
                 if alert_file and state_dir:
                     try:
                         state_dir.mkdir(parents=True, exist_ok=True)
@@ -464,7 +716,7 @@ def evaluate_pre_invocation(
                         pass
             else:
                 gauge_tag = "Subagent Auto-Compaction Ready" if is_subagent else "Compaction Checkpoint Active"
-                inject_steps.append({"systemMessage": {"systemMessage": f"[AGYIS TOKEN GAUGE: ~{tokens:,} / {max_ctx:,} TOKENS | {gauge_tag}]", "metadata": {}}})
+                inject_steps.append(build_system_message_step(f"[AGYIS TOKEN GAUGE: ~{tokens:,} / {max_ctx:,} TOKENS | {gauge_tag}]"))
         elif alert_file and alert_file.is_file():
             try:
                 updated = dict(existing_alert)
@@ -475,14 +727,7 @@ def evaluate_pre_invocation(
             except OSError:
                 pass
 
-        if conv_id != "default" or (os.environ.get("AGYIS_HARNESS_STATE_DIR") or "").strip() or (os.environ.get("PSL_HARNESS_STATE_DIR") or "").strip():
-            drained: List[str] = drain_pending_advisories(conv_id)
-            if state_dir is not None and conv_id != "default":
-                for extra_msg in drain_pending_advisories(conv_id, state_dir=state_dir):
-                    if extra_msg not in drained:
-                        drained.append(extra_msg)
-            for adv_msg in drained:
-                inject_steps.append({"systemMessage": {"systemMessage": adv_msg, "metadata": {}}})
+        inject_steps.extend(_drain_cid_pending_steps(conv_id, state_dir))
 
         return {"injectSteps": inject_steps}
     except Exception as exc:

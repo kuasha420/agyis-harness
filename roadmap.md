@@ -8,7 +8,7 @@
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Repository**: `kuasha420/agyis-harness`  
-**Last Updated**: 2026-11-27 (`v1.1.2`)  
+**Last Updated**: 2026-11-28 (`v1.2.0`)  
 
 ---
 
@@ -38,21 +38,32 @@ Dynamically scaled across **`256k`**, **Gemini 4 (`gemini-4-neon`, `gemini-4-hyd
 
 ---
 
-## 3. Completed Baseline (`v1.1.2` Uplift — Antigravity `v2.35.2`, Live HUD & 10-Repo Onboarding Hardening)
+## 3. Completed Baseline (`v1.2.0` Uplift — Antigravity `v2.35.2`, Live HUD & 10-Repo Onboarding Hardening)
 
 Phases 0.5 through **`v1.0.0` GA** and the **`v1.1.x` Uplift** (`Horizon 0` empirical ground truth & `3,856`-session Gate 0 corpus, `Horizon 1` core foundation, `v1.0.0-rc11` bug bash & modular ConnectRPC HUD, **29/29** Antigravity `v2.34.0+` / `agy v1.5.15` / `IDE v2.8.0` / `rea@6.9.0` compatibility fixes across `rc12`–`rc13`, continuous CI & wheel release publishing in `rc14`, **PSL Invariant Codex v2** `PSL-INV-001`–`008` + `PSL-RE-001` in `v1.0.0` GA, `v1.1.0`–`v1.1.1` `v2.35.2` `exa.hooks_pb` wire compatibility, SQLite lineage role pinning, Option-B checkpoint HUD / `:40624` playback parity, Orbital Aegis Light/Dark `2.5D` 5-route site, `/pause` + `/resume` skills, unified `agyis release`, plus `v1.1.2` CPython `3.14` uplift, slim Prettier-clean `AGENTS.md` injection, `.agyis/test_manifest.json` non-mutating onboarding, `agyis project {list,ensure}`, `engines`/`packageManager` preflight, `#101` POSIX quote scanner, `#94` plan exclusion, burn-rate & `PreInvocation` status fixes) are complete:
-- **Verified Surface**: **30** logical CLI subcommands (`31` parser entries including `project`, `release` & `changelogs` alias; `router` & `ladder` separate), **32** modular skills (including `pause` and `resume` alongside `graceful-parking` and `powerloss-resume`; `>100` L ToC, `<24,576` B cap), **8** canonical `v2.34+`/`2.35.2` agent personas (`19` canonical tools `<=20` ceiling), **7** `hooks.json` blocks (**8** `doctor` hook checks), **4** cleanroom RE specifications (including the 29-entry `v2.34.0` drift inventory), **7** official specs, and **4** human runbooks.
-- **Verified Quality Gate**: **2,695** hermetic tests (`127` `tests/test_*.py` + `4` `tests/e2e/test_*.py` modules = `131` total), **AFF** architectural fitness gate (`agyis audit aff`, `PSL-INV-008`), **4** cleanroom RE specifications (`agyis verify --spec`), SSOT parity audit (`agyis audit sync-check`), continuous CI (`.github/workflows/ci.yml`), and zero live `config.json` mutation.
+- **Verified Surface**: **31** logical CLI subcommands (`32` parser entries including `crosstalk`, `project`, `release` & `changelogs` alias; `router` & `ladder` separate), **33** modular skills (including `crosstalk`, `pause`, and `resume` alongside `graceful-parking` and `powerloss-resume`; `>100` L ToC, `<24,576` B cap), **8** canonical `v2.34+`/`2.35.2` agent personas (`19` canonical tools `<=20` ceiling), **7** `hooks.json` blocks (**8** `doctor` hook checks), **4** cleanroom RE specifications (including the 29-entry `v2.34.0` drift inventory), **7** official specs, and **4** human runbooks.
+- **Verified Quality Gate**: **2,732** hermetic tests (`131` `tests/test_*.py` + `4` `tests/e2e/test_*.py` modules = `135` total), **AFF** architectural fitness gate (`agyis audit aff`, `PSL-INV-008`), **4** cleanroom RE specifications (`agyis verify --spec`), SSOT parity audit (`agyis audit sync-check`), continuous CI (`.github/workflows/ci.yml`), and zero live `config.json` mutation.
 - **Release History**: [`CHANGELOG.md`](CHANGELOG.md)
 - **Full Historical Ledger (Phases 1–35)**: [`0069329:docs/archive/ledger/project-ledger-rc10-historical.md`](docs/archive/README.md#ledger)
 - **Active Post-RC10 Summary & ADRs**: [`docs/taxonomy/project-ledger.md`](docs/taxonomy/project-ledger.md) · [`docs/adr/README.md`](docs/adr/README.md) (`ADR-001`–`ADR-035`)
 
 ---
 
-## 4. Post-`v1.1.2` Horizon 2 Priorities
+## 4. Post-`v1.2.0` Horizon 2 Priorities
 
 | Priority Track | Scope & Target Deliverables | Acceptance Gate |
 | :--- | :--- | :--- |
 | **1. `ADR-029` Spatial Terminal Multiplexing** *(Deferred)* | Implement Confluence-mode spatial terminal multiplexing and out-of-band GitHub Discussion coordination (`swarm-council`) per [`docs/adr/README.md`](docs/adr/README.md). | Hermetic router/swarm tests + ADR status promoted from `Deferred` to `Accepted`. |
 | **2. Cross-Node Swarm & Publication** | Remote strand telemetry routing and verification across physical Knot mesh nodes (`desktop`, `laptop`, handheld controllers), decoupled worker visual cockpits, and multi-node telemetry sync (`kuasha420/agyis-harness`). | `agyis sync` / `agyis remote triage` verified across strands; strict plugin validation clean. |
 | **3. RE & Audit Hardening** | Sustain cleanroom `docs/specs/` verification (`4` cleanroom RE specifications; verified via `agyis verify --spec`), pre-analyzed Ghidra cache ergonomics (`PSL-RE-001`), `100.0/100` AFF fitness (`PSL-INV-008`), SSOT parity (`agyis audit sync-check`), and Gate 2 certification (`agyis audit certify` / `verdict`). | `agyis verify --spec`, `agyis agents validate --json`, `agyis audit aff`, and `agyis audit sync-check` pass with exit `0`. |
+
+---
+
+## 5. Locked Release & Horizon 3 Roadmap (`v1.2.0` -> `v1.2.2`+)
+
+| Release / Track | Locked Scope & Target Deliverables | Gate / Verification Target |
+| :--- | :--- | :--- |
+| **`v1.2.0` (Active)** | `/crosstalk` Native Cross-Project & Horizontal Succession Protocol: `harness/ux/` Generative UI widgets & deep-link pills, `crosstalk` discovery/baton/steering engine (`crosstalk.py`, `crosstalk_db.py`, `redaction.py`, `projects.py`), `SessionStart` + advisory guards & `fence_dispatch.py`, `agyis crosstalk` CLI, `crosstalk` skill + `presets.py`, and `succession.py` `/crosstalk` alignment. | Hermetic CLI/UX/hook tests, `agyis audit aff` (`100.0/100`), `agyis rules --lint`, `agyis agents validate --json`, `agyis audit sync-check --include-site`, full suite exit `0`. |
+| **`v1.2.1` (Locked)** | `/onboard` (`permissioned-github`, redacted GitHub issue reporter + OSS cross-linking + MRE, pilot residuals `project ensure --update` & `v1.0.x` block strip, 10-repo pilot verification & PRs) + Wave 2 UX refactors (`cockpit-director`, `status`, `pause`/`resume`/`graceful-parking`, `milestone-handoff`). | Hermetic onboarding/GitHub redaction tests, 10-repo pilot verification & clean PRs, SSOT sync pass. |
+| **`v1.2.2` (Locked)** | Wave 3 UX refactors (`subagent-router`, `psl-audit-toolkit`, `code-review`, ops skills) + tech debt (`hud_rpc.js` split, `test_gui.py` modularization, `NO_COLOR` status label, website count flash/SVG polish). | Modular AFF compliance (`<=800` L / `<=25` defs), full HUD/CLI test parity. |
+| **Horizon 3 (Locked Research)** | `mcp-app-development` SEP-1865 `aux_pane`/`global` Cockpit App; `swarm_board` `remote_board.json` cross-node view; `google-antigravity-sdk` `LiteRTAgentConfig` Gemma 4 `26B` local scorer; `automation` cron templates; `PostInvocation` `force_continue` + `.toml` policy portability; `ADR-029` Spatial Multiplexing. | Approved ADR/spec promotion & hermetic contract tests prior to implementation. |

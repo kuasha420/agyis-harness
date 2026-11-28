@@ -150,10 +150,10 @@ class TestSyncCheckUplift(unittest.TestCase):
         self.assertIn("parse_changelog_document", rel_text)
         self.assertIn("normalize_changelog_version", rel_text)
 
-    def test_surface_inventory_reports_31_subparsers_and_30_logical_subcommands(self) -> None:
+    def test_surface_inventory_reports_32_subparsers_and_31_logical_subcommands(self) -> None:
         surface = count_surface_inventory(REPO_ROOT)
-        self.assertEqual(surface["cli_subparsers"], 31)
-        self.assertEqual(surface["cli_logical_subcommands"], 30)
+        self.assertEqual(surface["cli_subparsers"], 32)
+        self.assertEqual(surface["cli_logical_subcommands"], 31)
 
         formatted = format_sync_check_report({
             "status": "PASS",
@@ -170,7 +170,7 @@ class TestSyncCheckUplift(unittest.TestCase):
             "include_site": False,
             "mismatches": [],
         })
-        self.assertIn("cli_subparsers=31 (30 logical)", formatted)
+        self.assertIn("cli_subparsers=32 (31 logical)", formatted)
 
 
 if __name__ == "__main__":

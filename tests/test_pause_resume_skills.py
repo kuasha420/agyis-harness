@@ -266,7 +266,7 @@ class TestPauseAndResumeSkills(unittest.TestCase):
         )
         self.assertEqual(
             GROUP_PRESETS["continuity"],
-            ["graceful-parking", "milestone-handoff", "git-worktree-ops"],
+            ["graceful-parking", "milestone-handoff", "git-worktree-ops", "crosstalk"],
         )
         self.assertEqual(
             GROUP_PRESETS["pause-resume"],

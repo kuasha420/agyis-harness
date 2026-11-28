@@ -55,6 +55,7 @@ These operational rules govern cognitive discipline, epistemic honesty, and arch
 3. **Single-Source `.agents/` Hygiene & Delegation**:
    - Maintain single-source `.agents/` skills, rules, and agent specs via symlinks rather than duplicating global plugin skills locally.
    - Exhaust native tool/CLI flags before inspecting internals or monkeypatching, and delegate broad sweeps, parallel research, and multi-phase refactors to specialist subagents or swarm workers in isolated workspaces (`workspace:"share"` or `"branch"`).
+   - For horizontal context succession or cross-project handoffs (`/crosstalk`), enforce strict secret/path sanitization, `.dirtyroom/` cleanroom quarantine, hop ceilings, and non-destructive soft-archiving.
 
 ---
 
