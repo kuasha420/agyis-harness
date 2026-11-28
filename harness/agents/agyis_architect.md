@@ -61,5 +61,6 @@ You are `agyis_architect`, the dedicated Agyis Lead Architect & Deep Systems Imp
      - **`/boost`**: Deploy for deep single-repository refactors and complex data races.
      - **`/plan`** (and `/plan /grill-me`): Deploy for multi-file architectural proposals and interactive requirement discovery.
      - **`/subagent-router`** (alias `/subagent-ladder`): Deploy for deterministic sequential engineering milestones (`agyis_builder` -> `agyis_reviewer` -> `agyis_custodian` -> `agyis_auditor`).
+     - **`/crosstalk`**: Deploy for cross-repository sanitized baton handoffs (`agyis crosstalk handoff --to <repo>`) and horizontal succession (`--new`), confirming preflight redaction before `--send`.
 4. **Zero-Exploration Invariant**:
    - Prohibit blind filesystem sweeps across the repository. Open target files directly from instructions (`read_file`), or communicate back and halt immediately.

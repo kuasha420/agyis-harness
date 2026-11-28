@@ -142,6 +142,7 @@ GROUP_PRESETS: Dict[str, List[str]] = {
         "milestone-handoff",
         "code-review",
         "psl-audit-toolkit",
+        "crosstalk",
     ],
     "ladder": [
         "agent-builder",
@@ -158,6 +159,7 @@ GROUP_PRESETS: Dict[str, List[str]] = {
         "graceful-parking",
         "milestone-handoff",
         "git-worktree-ops",
+        "crosstalk",
     ],
     "pause-resume": [
         "pause",

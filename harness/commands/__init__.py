@@ -38,6 +38,8 @@ _COMMAND_MAP: Dict[str, Tuple[str, str]] = {
     "cmd_checkpoint": ("harness.commands.checkpoint", "cmd_checkpoint"),
     "cmd_cockpit": ("harness.commands.cockpit", "cmd_cockpit"),
     "cmd_clean": ("harness.commands.clean", "cmd_clean"),
+    "cmd_crosstalk": ("harness.commands.crosstalk", "cmd_crosstalk"),
+    "cmd_project": ("harness.commands.project", "cmd_project"),
 }
 
 __all__ = list(_COMMAND_MAP.keys())

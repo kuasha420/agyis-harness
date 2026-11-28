@@ -404,7 +404,7 @@ class TestCommandSafety(unittest.TestCase):
                     decision, mod_cmd, reason = sanitize_command(cmd)
                     self.assertEqual(decision, "allow")
                     self.assertIsNotNone(mod_cmd)
-                    self.assertIn("cpython-3.12", mod_cmd)
+                    self.assertRegex(mod_cmd, r"cpython-3\.(?:1[2-9]|[2-9]\d)")
                     self.assertIn("PATH=", mod_cmd)
                     self.assertIn("python3 -c", mod_cmd)
                 finally:

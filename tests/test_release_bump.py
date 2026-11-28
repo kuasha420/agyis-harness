@@ -414,8 +414,8 @@ class TestReleaseBump(unittest.TestCase):
 
     def test_cli_wiring_subparser_count_and_release_check_failure_detection(self) -> None:
         surface = count_surface_inventory(Path(__file__).resolve().parent.parent)
-        self.assertEqual(surface["cli_subparsers"], 31)
-        self.assertEqual(surface["cli_logical_subcommands"], 30)
+        self.assertEqual(surface["cli_subparsers"], 32)
+        self.assertEqual(surface["cli_logical_subcommands"], 31)
 
         parser = build_parser()
         parsed_bump = parser.parse_args(["release", "bump", "1.1.1", "--skip-og", "--json"])

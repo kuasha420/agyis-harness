@@ -154,27 +154,31 @@ def build_compaction_advisory(
     tok_per_turn = max(3500, int(round(3500 * win / DEFAULT_CONTEXT_WINDOW_TOKENS)))
     est_turns = max(1, (runway_cap - tokens) // tok_per_turn) if tokens < runway_cap else 1
     header = f"[AGYIS SYSTEM DIRECTIVE: COMPACTION IMMINENT (~{tokens:,} / {threshold:,} TOKENS | ~{est_turns} TURNS REMAINING)]\n"
+    xtalk = f"4. CLEAN GENERATION SUCCESSION (/crosstalk): Optionally trigger `/crosstalk` handover (`agyis crosstalk handoff`) alongside checkpoint `{cp_hint}` to launch a clean continuation thread."
 
     if role == ROLE_DEEP_EXECUTION:
         return (
             f"{header}ROLE: Deep Execution (Monolithic SWE Pairing / Executioner)\n\n"
             f"1. WORK PRESERVATION CONTRACT (MANDATORY): {preserve}\n"
             f"2. ZERO REPO DOCUMENT POLLUTION: Save session checkpoint state strictly to `{cp_hint}` or brain directory. Zero git commits for WIP markers.\n"
-            "3. AUTONOMOUS POST-COMPACTION CONTINUATION: Post-compaction wake-up directive: inspect 'git status' and 'git diff' first, re-run tests, and resume without reverting and without asking the operator what happened."
+            "3. AUTONOMOUS POST-COMPACTION CONTINUATION: Post-compaction wake-up directive: inspect 'git status' and 'git diff' first, re-run tests, and resume without reverting and without asking the operator what happened.\n"
+            f"{xtalk}"
         )
     if role == ROLE_SWARM_ORCHESTRATOR:
         return (
             f"{header}ROLE: Swarm Orchestrator (Workstream Coordinator)\n\n"
             f"1. SWARM STATE SURVIVAL & ZERO REPO POLLUTION: Persist subagent task rosters, worktree / stage status, and milestone gates strictly to `{cp_hint}`.\n"
             f"2. WORK PRESERVATION CONTRACT: {preserve}\n"
-            "3. AUTONOMOUS POST-COMPACTION CONTINUATION: Inspect worker branches via 'git status'/'git diff' and resume gates without manual intervention."
+            "3. AUTONOMOUS POST-COMPACTION CONTINUATION: Inspect worker branches via 'git status'/'git diff' and resume gates without manual intervention.\n"
+            f"{xtalk}"
         )
     if role == ROLE_FORENSIC_AUDITOR:
         return (
             f"{header}ROLE: Forensic Auditor (Auditor / Hammer)\n\n"
             f"1. EVIDENCE PRESERVATION & ZERO REPO POLLUTION: Preserve defect reports in `{cp_hint}`. Zero git commits for ephemeral audit markers.\n"
             f"2. WORK PRESERVATION CONTRACT: {preserve}\n"
-            "3. AUTONOMOUS POST-COMPACTION CONTINUATION: Post-compaction wake-up: re-execute verification suites on HEAD, verify exit codes, and issue formal certification."
+            "3. AUTONOMOUS POST-COMPACTION CONTINUATION: Post-compaction wake-up: re-execute verification suites on HEAD, verify exit codes, and issue formal certification.\n"
+            f"{xtalk}"
         )
     if role == ROLE_FLIGHT_DIRECTOR:
         return (
@@ -182,9 +186,16 @@ def build_compaction_advisory(
             "1. COGNITIVE STATE PRESERVATION INVARIANT & ZERO REPO DOCUMENT POLLUTION:\n"
             f"   - Materialize working memory, active task decomposition, pending subagent assignments, and operator steering decisions into session-scoped checkpoint `{cp_hint}` before compaction strikes (Zero repository pollution).\n"
             f"2. WORK PRESERVATION CONTRACT: {preserve}\n"
-            f"3. AUTONOMOUS POST-COMPACTION CONTINUATION: Immediately inspect `{cp_hint}` and 'git status', then resume orchestration autonomously without human re-explanation."
+            f"3. AUTONOMOUS POST-COMPACTION CONTINUATION: Immediately inspect `{cp_hint}` and 'git status', then resume orchestration autonomously without human re-explanation.\n"
+            f"{xtalk}"
         )
-    return f"{header}ROLE: General Agent\n\n1. WORK PRESERVATION: {preserve}\n2. ZERO REPO POLLUTION: Store state in `{cp_hint}`. Zero git commits for temporary markers.\n3. CONTINUATION: Inspect 'git status' and 'git diff' post-compaction and resume without asking operator what happened."
+    return (
+        f"{header}ROLE: General Agent\n\n"
+        f"1. WORK PRESERVATION: {preserve}\n"
+        f"2. ZERO REPO POLLUTION: Store state in `{cp_hint}`. Zero git commits for temporary markers.\n"
+        "3. CONTINUATION: Inspect 'git status' and 'git diff' post-compaction and resume without asking operator what happened.\n"
+        f"{xtalk}"
+    )
 
 
 __all__ = [

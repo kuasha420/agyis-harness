@@ -6,7 +6,7 @@
 # Agyis Harness — Developer & Architecture Guide
 
 **Target Audience**: Harness Contributors, Maintainers, and Autonomous Agent Architects  
-**Version**: `1.1.2` (`2026-11-27`)  
+**Version**: `1.2.0` (`2026-11-28`)  
 **Repository**: `agyis-harness` (Package module: `harness`)  
 
 ---
@@ -23,11 +23,11 @@ agyis-harness/
 ├── hooks.json                # Declarative lifecycle hook registrations (7 blocks -> 8 runner targets)
 │
 ├── harness/                  # [THE PRODUCT] Distributable core package
-│   ├── cli.py                # Unified 30-command `agyis` CLI dispatcher (`31` parser entries incl. `changelogs`; `psl` legacy alias)
+│   ├── cli.py                # Unified 31-command `agyis` CLI dispatcher (`32` parser entries incl. `changelogs`; `psl` legacy alias)
 │   ├── discovery.py          # Global/workspace resource discovery, `.agyis/test_manifest.json` (`discovery_manifest.py`) & root path resolution
 │   ├── agents/               # 8 canonical `agyis_*` specialist personas (<=20 v2.34+ tools)
 │   ├── cleanroom/            # Specification, obligation ledger (rea@6.9.0), and reconstruction verifiers
-│   ├── commands/             # 28 handler/helper modules + __init__.py backing 30 logical top-level subcommands
+│   ├── commands/             # 29 handler/helper modules + __init__.py backing 31 logical top-level subcommands
 │   ├── delivery/             # Installer, harmonizer, `rules_inject.py`, `projects.py`, onboarder, release bumper, git topology, checkpoints
 │   ├── doctor/               # Modular diagnostics & health check runners (incl. `SM002` comment/string masking & Qt/PySide6 exclusions)
 │   ├── gui/                  # Electron CDP WebSocket unlockers & HUD (`assets/` via importlib.resources)
@@ -38,15 +38,16 @@ agyis-harness/
 │   ├── remote/               # ControlMaster SSH multiplexing & compact triage (<2KB)
 │   ├── rules/                # Curated agent governance (Codex v2: PSL-INV-001..008 + PSL-RE-001; slim Prettier-clean `universal_agents.md`)
 │   ├── runtime/              # Diagnostics, `engine_checks.py` (`engines`/`packageManager`), `healing.py`, hygiene checks, AFF
-│   ├── skills/               # 32 modular skills (incl. `pause`, `resume`; `>100` L carry ToC, `<24,576` B cap; `.agents/skills/` symlinks)
+│   ├── skills/               # 33 modular skills (incl. `crosstalk`, `pause`, `resume`; `>100` L carry ToC, `<24,576` B cap; `.agents/skills/` symlinks)
 │   ├── subagents/            # Routing (`routing.py`), liveness, truth, succession, spec & scaffolding
 │   ├── telemetry/            # Session harvester, hub sync client & systemd user daemon
+│   ├── ux/                   # Generative UI widget renderer & validated deep-link pills (`assets/` via importlib.resources)
 │   └── utils/                # Shared helpers including state (`state.py`), plan parsing (`plan_parser.py`) & context metadata (`context.py`)
 │
 ├── pipeline/                 # [THE PROJECT] Telemetry extraction & empirical classification lab
 ├── data/                     # [THE PROJECT] Local empirical SQLite telemetry store (`telemetry.db`)
 ├── docs/                     # [THE PROJECT] ADRs (`001–035`), 7 Official Specs, 4 RE Specs, 4 Runbooks, 2 Taxonomy, Archive Index (`0069329`)
-└── tests/                    # [THE PROJECT] 127 test_*.py + 4 e2e/test_*.py hermetic suites (131 total)
+└── tests/                    # [THE PROJECT] 131 test_*.py + 4 e2e/test_*.py hermetic suites (135 total)
 ```
 
 ### Key Non-Negotiable Architecture Rules
@@ -57,15 +58,15 @@ agyis-harness/
 
 ---
 
-## 2. Unified 30-Command CLI Architecture (`harness/cli.py`)
+## 2. Unified 31-Command CLI Architecture (`harness/cli.py`)
 
-`harness/cli.py` registers **30** logical top-level subcommands (`31` top-level subparsers incl. `changelogs` alias on `changelog`; `router` and `ladder` as sibling subparsers) backed by 28 handler/helper modules in `harness/commands/`:
+`harness/cli.py` registers **31** logical top-level subcommands (`32` top-level subparsers incl. `changelogs` alias on `changelog`; `router` and `ladder` as sibling subparsers) backed by 29 handler/helper modules in `harness/commands/`:
 
-| Domain | Top-Level Subcommands (`30`) | Primary Backing Modules |
+| Domain | Top-Level Subcommands (`31`) | Primary Backing Modules |
 | :--- | :--- | :--- |
 | **Diagnostics & Testing** | `doctor`, `test`, `status` | `harness/commands/{doctor,test,status}.py`, `harness/runtime/` |
 | **Lifecycle Hooks** | `hook` | `harness/commands/hook.py`, `harness/hooks/runner.py` |
-| **Cockpit & Routing** | `cockpit`, `router`, `ladder`, `checkpoint`, `subagents` | `harness/commands/{cockpit,checkpoint,subagents}.py`, `harness/subagents/routing.py` |
+| **Cockpit & Routing** | `cockpit`, `router`, `ladder`, `checkpoint`, `subagents`, `crosstalk` | `harness/commands/{cockpit,checkpoint,subagents,crosstalk}.py`, `harness/subagents/routing.py` |
 | **Workspace & Onboarding** | `init`, `harmonize`, `onboard`, `project`, `clean`, `ext` | `harness/commands/{init,harmonize,onboard,project,clean,ext}.py`, `harness/delivery/` |
 | **Governance & Discovery** | `rules`, `skills`, `agents` | `harness/commands/{rules,skills,agents}.py`, `harness/subagents/` |
 | **Telemetry & AFF Audits** | `audit`, `sync`, `auth` | `harness/commands/{audit,sync,auth}.py`, `harness/telemetry/` |

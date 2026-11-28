@@ -57,3 +57,6 @@ git diff --cached -U3
 3. Apply surgical replacement via `edit_file`.
 4. Run project test suite: `agyis test` (or native test runner: `pnpm test`, `pytest`, `cargo test`).
 5. Stage and commit specifically with: `fix(<component>): resolve review feedback on <target>`.
+
+### Cross-Session Handoff (`/crosstalk`)
+When passing review findings or PR defect ledgers to another repository or fresh thread, use `agyis crosstalk handoff --to <repo>` (confirming Visual Preflight Shield before `--send`) or `agyis crosstalk send <cid>` to keep diffs and tokens redacted across boundaries.

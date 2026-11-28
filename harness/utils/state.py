@@ -33,13 +33,17 @@ def sanitize_conv_id(conv_id: Any, default: str = "default") -> str:
 
 def get_state_dir(default_name: Optional[str] = None) -> Path:
     """
-    Returns the harness state directory respecting AGYIS_HARNESS_STATE_DIR and PSL_HARNESS_STATE_DIR.
+    Returns the harness state directory respecting AGYIS_HARNESS_STATE_DIR,
+    PSL_HARNESS_STATE_DIR, and lower-priority PLUGIN_DATA (<PLUGIN_DATA>/state).
     Defaults to /tmp/agyis_harness_state_{uid} using os.getuid() when not set.
     Hardened with try...except OSError for directory creation.
     """
     env_dir = os.environ.get("AGYIS_HARNESS_STATE_DIR") or os.environ.get("PSL_HARNESS_STATE_DIR")
     if env_dir and env_dir.strip():
         path = Path(env_dir.strip())
+    elif (plugin_data := (os.environ.get("PLUGIN_DATA") or "").strip()):
+        base = Path(os.path.expanduser(plugin_data))
+        path = base / default_name if default_name else (base / "state")
     else:
         uid = os.getuid() if hasattr(os, "getuid") else 0
         if default_name:

@@ -315,9 +315,28 @@ def _is_task_log_inspection(sig: dict) -> bool:
     return False
 
 
+_CROSSTALK_POLL_RE = re.compile(
+    r"\b(?:ConversationService/(?:GetConversation|ListConversations)"
+    r"|LanguageServerService/(?:GetAllCascadeTrajectories|GetCascadeTrajectory)"
+    r"|agentapi\s+get-conversation-metadata"
+    r"|(?:agyis|psl)\s+crosstalk\s+(?:status|list|inspect))\b"
+)
+
+
+def _is_crosstalk_poll(sig: dict) -> bool:
+    """Detects cross-thread ConversationService/LS/crosstalk status polling shell commands."""
+    if sig.get("name") not in ("run_command", "execute_command", "bash"):
+        return False
+    args = sig.get("args")
+    if not isinstance(args, dict):
+        return False
+    cmd = str(args.get("CommandLine") or args.get("command") or "").strip()
+    return bool(cmd and _CROSSTALK_POLL_RE.search(cmd))
+
+
 def _is_background_poll(sig: dict) -> bool:
-    """Returns True for background task log inspections or manage_task(Action='status') polls."""
-    return _is_task_log_inspection(sig) or _is_manage_task_status(sig)
+    """Returns True for background task log inspections, manage_task status, or crosstalk status polls."""
+    return _is_task_log_inspection(sig) or _is_manage_task_status(sig) or _is_crosstalk_poll(sig)
 
 
 def check_anti_loop(
@@ -407,11 +426,36 @@ def check_anti_loop(
     if _is_code_edit(raw_sig):
         history = [item for item in history if not _is_test_verification_command(item)]
 
+    # 0a. Advisory-only crosstalk status polling notice (Decision D6 — never hard-deny)
+    if _is_crosstalk_poll(raw_sig):
+        prior_crosstalk = sum(1 for item in history[-TASK_INSPECTION_WINDOW:] if _is_crosstalk_poll(item))
+        history.append(sig)
+        history = history[-HISTORY_WINDOW:]
+        try:
+            save_history(conv_id, history, target_dir=target_dir)
+        except OSError as exc:
+            sys.stderr.write(f"[AGYIS ANTI-LOOP] Warning: Failed saving history: {exc}\n")
+        if prior_crosstalk >= 1:
+            adv = (
+                f"[AGYIS ANTI-LOOP] Advisory: Cross-thread status polling (GetConversation/ListConversations) "
+                f"appeared {prior_crosstalk + 1} times within the recent window. "
+                "Avoid tight polling loops; use bounded 'schedule' timers or single-shot 'agyis crosstalk status'."
+            )
+            emit_stderr_diagnostic(adv)
+            enqueue_pending_advisory(
+                conv_id,
+                adv,
+                user_markdown="> **Agyis Anti-Loop Notice**: Repeated `GetConversation`/`ListConversations` polling detected; prefer bounded `schedule` timers or single-shot `agyis crosstalk status`.",
+                state_dir=target_dir,
+            )
+            return {"decision": "allow", "reason": adv}
+        return {"decision": "allow"}
+
     # 0. Background task polling check (strictly denies >= 3 consecutive or >= 3 in 10-call window)
-    if _is_background_poll(raw_sig):
+    if _is_task_log_inspection(raw_sig) or _is_manage_task_status(raw_sig):
         consecutive_inspections = 0
         for prev in reversed(history):
-            if _is_background_poll(prev):
+            if _is_task_log_inspection(prev) or _is_manage_task_status(prev):
                 consecutive_inspections += 1
             else:
                 break
@@ -426,7 +470,7 @@ def check_anti_loop(
             }
 
         window_tasks = (history + [sig])[-TASK_INSPECTION_WINDOW:]
-        freq_tasks = sum(1 for item in window_tasks if _is_background_poll(item))
+        freq_tasks = sum(1 for item in window_tasks if (_is_task_log_inspection(item) or _is_manage_task_status(item)))
         if freq_tasks >= MAX_TASK_INSPECTION_WINDOW_FREQUENCY:
             return {
                 "decision": "deny",

@@ -1,0 +1,327 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Crosstalk Constellation</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    .ct-dot { width: 8px; height: 8px; border-radius: 9999px; display: inline-block; flex-shrink: 0; }
+    .ct-mono { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body class="bg-transparent text-[var(--foreground)] antialiased p-0 m-0">
+  <div id="ct-root" class="py-1.5 space-y-2 text-xs">
+    <div class="pb-2 border-b border-[var(--card-border)] space-y-1.5">
+      <div class="flex items-start justify-between gap-2">
+        <div class="min-w-0">
+          <div id="ct-goal-title" class="text-sm font-medium text-[var(--foreground)] truncate">Crosstalk Constellation</div>
+          <p id="ct-goal-line" class="text-xs text-[var(--muted-foreground)] truncate"></p>
+        </div>
+        <div id="ct-summary-counts" class="shrink-0 font-mono ct-mono text-[var(--muted-foreground)]"></div>
+      </div>
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div id="ct-surface-tabs" role="tablist" aria-label="Surface filter" class="inline-flex items-center gap-3">
+          <button type="button" role="tab" data-surface="all" aria-selected="true" class="ct-tab pb-0.5 border-b-2 border-[var(--primary)] text-[var(--foreground)] font-medium focus-visible:outline-none">All</button>
+          <button type="button" role="tab" data-surface="desktop" aria-selected="false" class="ct-tab pb-0.5 border-b-2 border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)] focus-visible:outline-none">Desktop</button>
+          <button type="button" role="tab" data-surface="cli" aria-selected="false" class="ct-tab pb-0.5 border-b-2 border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)] focus-visible:outline-none">CLI</button>
+        </div>
+        <label class="inline-flex items-center gap-1.5 text-[var(--muted-foreground)] cursor-pointer select-none">
+          <input id="ct-archived-toggle" type="checkbox" class="accent-[var(--primary)]" />
+          <span id="ct-archived-label">Show archived/completed</span>
+        </label>
+      </div>
+    </div>
+
+    <div id="ct-attention-wrap" class="hidden pb-2 border-b border-[var(--card-border)] space-y-1">
+      <div class="text-xs text-[var(--muted-foreground)] uppercase tracking-wider">Attention</div>
+      <div id="ct-attention-list" class="space-y-1"></div>
+    </div>
+
+    <div id="ct-groups-wrap" class="divide-y divide-[var(--card-border)]"></div>
+    <div id="ct-empty" class="hidden py-2 text-[var(--muted-foreground)]">No matching crosstalk threads for this filter.</div>
+
+    <div id="ct-footer" class="hidden pt-1 border-t border-[var(--card-border)] flex items-center justify-between gap-2 text-[var(--muted-foreground)] ct-mono">
+      <span id="ct-edges-summary"></span>
+      <span id="ct-schema-badge" class="font-mono"></span>
+    </div>
+  </div>
+
+  <script type="application/json" id="crosstalk-data">__CROSSTALK_VIEW_DATA__</script>
+  <script>
+    (function () {
+      "use strict";
+
+      var ATTENTION_RANK = { decision: 0, failure: 1, review: 2, stuck: 3, quota: 4, error: 4, fyi: 5 };
+      var OUTCOME_ORDER = ["blocked", "active", "idle", "done"];
+      var state = { surface: "all", showArchived: false };
+
+      function el(tag, className, text) {
+        var node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text !== undefined && text !== null) node.textContent = String(text);
+        return node;
+      }
+
+      function dotPalette() {
+        var isLight = document.documentElement.classList.contains("light");
+        return {
+          green: isLight ? "#63984f" : "#7aae66",
+          amber: isLight ? "#bca136" : "#cab43e",
+          red: isLight ? "#cb3d3d" : "#e05d5d",
+          muted: "var(--muted-foreground)"
+        };
+      }
+
+      function copyText(text, btn) {
+        if (!text) return;
+        function flashDone() {
+          if (!btn) return;
+          var prev = btn.textContent;
+          btn.textContent = "Copied";
+          setTimeout(function () { btn.textContent = prev; }, 1400);
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(flashDone, function () {
+            fallbackCopy(text, flashDone);
+          });
+        } else {
+          fallbackCopy(text, flashDone);
+        }
+      }
+
+      function fallbackCopy(text, done) {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand("copy"); } catch (_err) {}
+        document.body.removeChild(ta);
+        done();
+      }
+
+      function normalizeRefs(item) {
+        return Array.isArray(item && item.refs) ? item.refs.filter(function (r) { return r && (r.label || r.target); }) : [];
+      }
+
+      function resolveOutcome(item) {
+        var refs = normalizeRefs(item);
+        var raw = String((item && item.outcome) || "idle").toLowerCase();
+        if ((raw === "done" || raw === "verified" || raw === "completed") && refs.length === 0) {
+          return { outcome: "idle", unverified: true };
+        }
+        var valid = OUTCOME_ORDER.indexOf(raw) !== -1 ? raw : "idle";
+        return { outcome: valid, unverified: false };
+      }
+
+      var rawEl = document.getElementById("crosstalk-data");
+      var data = {};
+      try {
+        data = JSON.parse((rawEl && rawEl.textContent) || "{}");
+      } catch (_err) {
+        data = {};
+      }
+
+      var goal = data.goal || {};
+      var entities = Array.isArray(data.entities) && data.entities.length > 0
+        ? data.entities
+        : (Array.isArray(data.threads) ? data.threads : []);
+      var attention = Array.isArray(data.attention) ? data.attention.slice() : [];
+      var edges = Array.isArray(data.edges) ? data.edges : [];
+
+      attention.sort(function (a, b) {
+        var ra = ATTENTION_RANK[String((a && a.kind) || "fyi").toLowerCase()];
+        var rb = ATTENTION_RANK[String((b && b.kind) || "fyi").toLowerCase()];
+        return (ra === undefined ? 99 : ra) - (rb === undefined ? 99 : rb);
+      });
+
+      document.getElementById("ct-goal-title").textContent = goal.title || "Crosstalk Constellation";
+      document.getElementById("ct-goal-line").textContent = goal.line || "";
+
+      function renderAttention() {
+        var wrap = document.getElementById("ct-attention-wrap");
+        var list = document.getElementById("ct-attention-list");
+        list.textContent = "";
+        if (attention.length === 0) {
+          wrap.classList.add("hidden");
+          return;
+        }
+        wrap.classList.remove("hidden");
+        var pal = dotPalette();
+        attention.slice(0, 4).forEach(function (att) {
+          var kind = String(att.kind || "fyi").toLowerCase();
+          var refs = normalizeRefs(att);
+          var row = el("div", "flex items-center justify-between gap-2 py-0.5");
+          var left = el("div", "flex items-center gap-1.5 min-w-0");
+          var dot = el("span", "ct-dot");
+          dot.style.backgroundColor = (kind === "failure" || kind === "decision")
+            ? pal.red
+            : (kind === "review" || kind === "stuck" || kind === "quota" || kind === "error")
+              ? pal.amber
+              : pal.muted;
+          left.appendChild(dot);
+          left.appendChild(el("span", "px-1 py-0.5 rounded border border-[var(--card-border)] font-mono uppercase text-[var(--muted-foreground)]", kind));
+          left.appendChild(el("span", "font-medium text-[var(--foreground)] truncate", att.title || "Attention"));
+          if (att.line) {
+            left.appendChild(el("span", "text-[var(--muted-foreground)] truncate", att.line));
+          }
+          row.appendChild(left);
+          var refLabel = refs.length > 0 ? ("ref: " + (refs[0].label || refs[0].target)) : "no ref";
+          row.appendChild(el("span", "shrink-0 px-1.5 py-0.5 rounded border border-[var(--card-border)] font-mono text-[var(--muted-foreground)]", refLabel));
+          list.appendChild(row);
+        });
+      }
+
+      function renderEntities() {
+        var pal = dotPalette();
+        var archivedCount = entities.filter(function (item) {
+          return Boolean(item && item.archived);
+        }).length;
+        document.getElementById("ct-archived-label").textContent = "Show archived/completed (" + archivedCount + ")";
+
+        var visible = entities.filter(function (item) {
+          if (!item) return false;
+          if (!state.showArchived && item.archived) return false;
+          if (state.surface !== "all") {
+            var s = String(item.surface || "desktop").toLowerCase();
+            if (s !== state.surface) return false;
+          }
+          return true;
+        });
+
+        var counts = { blocked: 0, active: 0, idle: 0, done: 0 };
+        var grouped = { blocked: [], active: [], idle: [], done: [] };
+        visible.forEach(function (item) {
+          var res = resolveOutcome(item);
+          counts[res.outcome] += 1;
+          grouped[res.outcome].push({ item: item, unverified: res.unverified });
+        });
+
+        var summaryParts = [];
+        OUTCOME_ORDER.forEach(function (key) {
+          if (counts[key] > 0) summaryParts.push(counts[key] + " " + key);
+        });
+        document.getElementById("ct-summary-counts").textContent = summaryParts.join(" · ") || "0 visible";
+
+        var wrap = document.getElementById("ct-groups-wrap");
+        var emptyEl = document.getElementById("ct-empty");
+        wrap.textContent = "";
+
+        if (visible.length === 0) {
+          emptyEl.classList.remove("hidden");
+        } else {
+          emptyEl.classList.add("hidden");
+        }
+
+        OUTCOME_ORDER.forEach(function (bucket) {
+          var entries = grouped[bucket];
+          if (entries.length === 0) return;
+          var sec = el("div", "py-1.5 space-y-1");
+          sec.appendChild(el("div", "text-[var(--muted-foreground)] uppercase tracking-wider", bucket + " (" + entries.length + ")"));
+          entries.forEach(function (entry) {
+            var item = entry.item;
+            var refs = normalizeRefs(item);
+            var row = el("div", "flex items-center justify-between gap-2 py-1");
+            var left = el("div", "min-w-0 flex-1");
+            var top = el("div", "flex items-center gap-1.5 min-w-0");
+
+            var dot = el("span", "ct-dot");
+            var runState = String(item.run_state || "").toUpperCase();
+            if (bucket === "blocked" || runState === "BLOCKED" || runState === "FAILED") {
+              dot.style.backgroundColor = pal.red;
+            } else if (bucket === "active" || runState === "RUNNING") {
+              dot.style.backgroundColor = pal.green;
+            } else if (runState === "STUCK" || runState === "REVIEW" || entry.unverified) {
+              dot.style.backgroundColor = pal.amber;
+            } else {
+              dot.style.backgroundColor = pal.muted;
+            }
+            top.appendChild(dot);
+            top.appendChild(el("span", "font-medium text-[var(--foreground)] truncate", item.title || item.id || "Thread"));
+
+            var surf = String(item.surface || "desktop").toLowerCase();
+            top.appendChild(el("span", "shrink-0 px-1 py-0.5 rounded border border-[var(--card-border)] font-mono text-[var(--muted-foreground)]", surf));
+
+            if (item.generation || item.hop) {
+              var hopText = "gen:" + (item.generation || 1);
+              if (item.hop) hopText += " · hop " + item.hop + "/" + (item.max_hops || 2);
+              top.appendChild(el("span", "shrink-0 font-mono ct-mono text-[var(--muted-foreground)]", hopText));
+            }
+            if (refs.length > 0) {
+              top.appendChild(el("span", "shrink-0 px-1 py-0.5 rounded border border-[var(--card-border)] font-mono text-[var(--muted-foreground)]", "ref: " + (refs[0].label || refs[0].target)));
+            } else if (entry.unverified) {
+              top.appendChild(el("span", "shrink-0 px-1 py-0.5 rounded border border-[var(--card-border)] font-mono text-[var(--muted-foreground)]", "unverified (no ref)"));
+            }
+            left.appendChild(top);
+
+            var subBits = [];
+            if (item.project) subBits.push(item.project + (item.branch ? "@" + item.branch : ""));
+            if (item.activity || item.now) subBits.push(item.activity || item.now);
+            if (subBits.length > 0) {
+              left.appendChild(el("div", "text-[var(--muted-foreground)] truncate pl-3.5", subBits.join(" · ")));
+            }
+            row.appendChild(left);
+
+            var rawId = item.id ? String(item.id) : "";
+            var validFallbackId = Boolean(rawId && !rawId.includes("..") && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(rawId));
+            var cmd = item.cli_command || (validFallbackId ? ("agy --conversation " + rawId) : "");
+            if (cmd) {
+              var btn = el("button", "shrink-0 px-1.5 py-0.5 rounded border border-[var(--card-border)] bg-[var(--card)] text-[var(--foreground)] hover:border-[var(--primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary)]", "Copy");
+              btn.type = "button";
+              btn.setAttribute("aria-label", "Copy command " + cmd);
+              btn.addEventListener("click", function () { copyText(cmd, btn); });
+              row.appendChild(btn);
+            }
+            sec.appendChild(row);
+          });
+          wrap.appendChild(sec);
+        });
+
+        var footer = document.getElementById("ct-footer");
+        if (edges.length > 0 || data.version) {
+          footer.classList.remove("hidden");
+          document.getElementById("ct-edges-summary").textContent = edges.length > 0 ? (edges.length + " lineage edge" + (edges.length === 1 ? "" : "s")) : "Desktop + CLI discovery";
+          document.getElementById("ct-schema-badge").textContent = "schema v" + (data.version || "1.0");
+        }
+      }
+
+      function renderAll() {
+        var isLight = document.documentElement.classList.contains("light");
+        document.body.dataset.theme = isLight ? "light" : "dark";
+        renderAttention();
+        renderEntities();
+      }
+
+      var tabButtons = document.querySelectorAll(".ct-tab");
+      Array.prototype.forEach.call(tabButtons, function (btn) {
+        btn.addEventListener("click", function () {
+          state.surface = btn.getAttribute("data-surface") || "all";
+          Array.prototype.forEach.call(tabButtons, function (other) {
+            var active = other === btn;
+            other.setAttribute("aria-selected", active ? "true" : "false");
+            other.classList.toggle("border-[var(--primary)]", active);
+            other.classList.toggle("text-[var(--foreground)]", active);
+            other.classList.toggle("font-medium", active);
+            other.classList.toggle("border-transparent", !active);
+            other.classList.toggle("text-[var(--muted-foreground)]", !active);
+          });
+          renderEntities();
+        });
+      });
+
+      document.getElementById("ct-archived-toggle").addEventListener("change", function () {
+        state.showArchived = Boolean(this.checked);
+        renderEntities();
+      });
+
+      renderAll();
+      window.addEventListener("themechange", renderAll);
+    })();
+  </script>
+</body>
+</html>

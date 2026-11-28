@@ -60,6 +60,7 @@ Every reverse engineering workspace MUST enforce a strict air-gap membrane (**PS
 2. **Quarantined Workspace Layout**: Keep all dirty-room analysis state inside `.dirtyroom/` (excluded via `.gitignore`), resolving a non-dot Ghidra project path when launching headless Ghidra so leading-dot paths never cause rejection.
 3. **Pure Specification Transfer**: Only human/agent-authored specifications (`docs/specs/**`), declarative field schemas, hermetic fixtures, and typed obligation ledgers (`.agents/ledger/**`) may cross into version control.
 4. **No Speculative Assumptions (`PSL-INV-002`)**: Unobserved protocol paths, ambiguous structures, or incomplete findings must be tracked explicitly as residual unknowns until resolved by cited SHA-256 evidence.
+5. **Crosstalk Cleanroom Preflight (`PSL-RE-001`)**: Outbound `/crosstalk` handoffs and steers (`agyis crosstalk handoff` / `send`) automatically block `.dirtyroom/` path leaks, `.dirtyroom/` fenced blocks, `.env`, and `*.pem`/`*.key` extraction paths before transmission.
 
 ---
 

@@ -4,10 +4,13 @@
 # Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework)
 
 """
-Agyis Harness: Horizontal Succession Protocol & Self-Alias Ladder (ADR-031 / Issue #77).
+Agyis Harness: Horizontal Succession Protocol & Alias Mapper (ADR-031 / Issue #77).
 
 Implements:
-1. Dynamic Self-Alias Ladder for invoke_subagent(TypeName='self', Workspace='inherit').
+1. Backward-compatible alias resolution (`resolve_self_alias`) mapping legacy aliases
+   to registered specialist archetypes (note: horizontal context succession now uses
+   `/crosstalk` via `agyis crosstalk handoff --new` or an explicit registered archetype
+   like `TypeName='agyis_coordinator'` / native `swarm` `fork`, NEVER `TypeName='self'`).
 2. Standardized 6-section Succession Prompt Blueprint for generation handoff.
 3. Structured Subagent Custody Transfer protocol.
 4. Successor generation directory scaffolding.
@@ -54,10 +57,12 @@ DEFAULT_ARCHETYPE: str = "agyis_coordinator"
 
 def resolve_self_alias(role_str: Optional[str] = None) -> str:
     """
-    Resolves the dynamic alias ladder for `invoke_subagent(TypeName='self', Workspace='inherit')`.
-    If `role_str` is 'self' (case-insensitive) or empty/None:
-    Looks up active role from AGYIS_ROLE or GEMINI_ROLE environment variables.
-    Normalizes string and maps to registered specialist archetype.
+    Maps role strings (and backward-compatible `'self'` inputs) to a registered
+    specialist archetype (`agyis_coordinator`, `agyis_architect`, etc.).
+
+    Note: Runtime callers must NOT pass `TypeName='self'` to `invoke_subagent`;
+    use `/crosstalk` (`agyis crosstalk handoff --new`) for horizontal succession or
+    pass an explicit registered specialist archetype (`TypeName='agyis_coordinator'`).
     """
     target = role_str
     if not target or not isinstance(target, str) or target.strip().lower() == "self":
@@ -135,6 +140,9 @@ You MUST execute the following sequence immediately upon awakening without pause
 6. [ ] **Autonomous Continuation (Zero Operator Re-prompting)**:
    Do NOT ask the operator *"What was I doing?"* or *"Should I continue?"*.
    Proceed directly with implementation!
+
+> [!NOTE]
+> **Horizontal Succession & Custody Transport**: Use `/crosstalk` (`agyis crosstalk handoff --new`) as the primary horizontal context-succession carrier across top-level threads or projects, or dispatch a registered specialist archetype (`TypeName="agyis_coordinator"`, `Workspace="inherit"`) / native `swarm` `fork`.
 """
 
 

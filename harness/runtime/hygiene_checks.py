@@ -374,7 +374,12 @@ def check_hooks_health(hooks_path: Optional[Path] = None) -> Dict[str, Any]:
         ALIASES = {
             "compaction-advisory": "pre-invocation",
             "compaction_advisory": "pre-invocation",
+            "pre-invocation": "pre-invocation",
             "pre_invocation": "pre-invocation",
+            "preinvocation": "pre-invocation",
+            "session-start": "pre-invocation",
+            "session_start": "pre-invocation",
+            "sessionstart": "pre-invocation",
             "token-proximity-guard": "token-proximity",
         }
 
@@ -391,8 +396,9 @@ def check_hooks_health(hooks_path: Optional[Path] = None) -> Dict[str, Any]:
 
     def _extract_commands(node: Any, out: List[str]) -> None:
         if isinstance(node, dict):
-            if "command" in node and isinstance(node["command"], str):
-                out.append(node["command"])
+            cmd_val = node.get("command")
+            if isinstance(cmd_val, str) and cmd_val.strip():
+                out.append(cmd_val)
             for val in node.values():
                 _extract_commands(val, out)
         elif isinstance(node, list):
@@ -425,7 +431,7 @@ def check_hooks_health(hooks_path: Optional[Path] = None) -> Dict[str, Any]:
                 if tok in ("harness.hooks.runner", "runner") and i + 1 < len(tokens):
                     hook_name = tokens[i + 1]
                     break
-                if tok == "hook" and i > 0 and "cli" in tokens[i - 1] and i + 1 < len(tokens):
+                if tok == "hook" and i > 0 and ("cli" in tokens[i - 1] or Path(tokens[i - 1]).name in ("agyis", "psl")) and i + 1 < len(tokens):
                     hook_name = tokens[i + 1]
                     break
 

@@ -125,3 +125,6 @@ Record every discovered worker ID, role, branch/worktree, and task ID in `PARKED
    - Confirmation that `.agents/artifacts/pause_gate.json` is `"status": "paused"` and `PARKED_STATE.md` is finalized.
    - Collected `[PARK_ACK: <UUID>]` roster and latest checkpoint identifier.
    - Clear instruction to invoke `/resume` when ready to continue work safely.
+
+### Cross-Session Warm Handoff (`/crosstalk`)
+- If resuming in a new thread or bridging into another repository after quiescence, run `agyis crosstalk handoff --new --include-checkpoint --dry-run` (then `--send` after preflight review) so the target session inherits a sanitized baton on `SessionStart`, and inspect state with `agyis crosstalk status`.

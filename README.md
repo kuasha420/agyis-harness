@@ -8,9 +8,9 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Platform](https://img.shields.io/badge/Platform-Google_Antigravity_v2.34-4285F4.svg)](https://antigravity.google)
 [![Models](https://img.shields.io/badge/Models-Gemini_4_Ready_(512k%2F1M)-8E75B2.svg)](docs/specs/antigravity_v2_34_compatibility_inventory.md)
-[![Version](https://img.shields.io/badge/Version-v1.1.2-brightgreen.svg)](https://github.com/kuasha420/agyis-harness/releases/tag/v1.1.2)
+[![Version](https://img.shields.io/badge/Version-v1.2.0-brightgreen.svg)](https://github.com/kuasha420/agyis-harness/releases/tag/v1.2.0)
 [![CI](https://github.com/kuasha420/agyis-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/kuasha420/agyis-harness/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/Tests-2695_Hermetic_Passing-brightgreen.svg)](docs/official-specs/testing-contracts.md)
+[![Tests](https://img.shields.io/badge/Tests-2732_Hermetic_Passing-brightgreen.svg)](docs/official-specs/testing-contracts.md)
 [![AFF](https://img.shields.io/badge/AFF-100%2F100-brightgreen.svg)](docs/taxonomy/project-ledger.md)
 [![Website](https://img.shields.io/badge/Website-GitHub_Pages-1B4DFF.svg)](https://kuasha420.github.io/agyis-harness/)
 
@@ -155,9 +155,9 @@ agyis onboard . --create-branch --pr                  # End-to-end onboarding wi
 
 ---
 
-## 🛠️ Consolidated 30-Command CLI Palette
+## 🛠️ Consolidated 31-Command CLI Palette
 
-The unified `agyis` CLI registers **30** logical top-level subcommands (`31` parser entries including `changelogs` alias; `router` and `ladder` separately — see [`docs/official-specs/cli-palette.md`](docs/official-specs/cli-palette.md)):
+The unified `agyis` CLI registers **31** logical top-level subcommands (`32` parser entries including `changelogs` alias; `router` and `ladder` separately — see [`docs/official-specs/cli-palette.md`](docs/official-specs/cli-palette.md)):
 
 ```bash
 # 🚀 Workspace Onboarding & Hygiene
@@ -176,8 +176,8 @@ agyis status                     # Dashboard: health, active hooks, attention ga
 agyis test [-v]                  # Run hermetic test suite (sub-second component benchmarks)
 agyis verify [--spec]            # Verify 4 cleanroom RE specs & rea@6.9.0 typed obligation ledgers
 
-# 🧩 32 Modular Skills, 8 Agent Personas & Rules
-agyis skills [--sync]            # Inspect/sync 32 skills (incl. pause, resume; >100 L ToC, <24,576 B cap)
+# 🧩 33 Modular Skills, 8 Agent Personas & Rules
+agyis skills [--sync]            # Inspect/sync 33 skills (incl. crosstalk, pause, resume; >100 L ToC, <24,576 B cap)
 agyis skills --prune-duplicates  # Prune duplicate workspace skills shadowing global plugin
 agyis rules [--lint] [--dedup]   # Audit and deduplicate global/workspace agent rules
 agyis agents [name|create|sync|validate] # Catalog, scaffold & validate the 8 canonical personas
@@ -188,6 +188,7 @@ agyis cockpit status             # Cockpit dashboard: scaled 512k/1M tokens, sub
 agyis cockpit route <A-L|alias>  # Structured dispatch briefing across 12 canonical workflows
 agyis router / agyis ladder      # Dynamic subagent router subcommands (alias: ladder)
 agyis checkpoint [status|generate|create|verify|prune] # CID-scoped pre-compaction succession
+agyis crosstalk {list,search,status,inspect,widget,handoff,send,archive} # Cross-project & horizontal baton handoff (/crosstalk)
 
 # 🔬 Dirtyroom RE & Extensible Commands
 agyis re {status,init,patch-rea,pre-analyze,find,decompile,pcap,disasm,xrefs,addr,cache,daemon,seed,prime,clean} # 15-subcommand PE/ELF Cleanroom RE suite
@@ -249,11 +250,11 @@ Agyis declares **7** registration blocks in [`hooks.json`](hooks.json) (symlink 
          │ (User preferences, developer credentials & user agents)
          ▼
 [Layer 1: Global Plugin] (~/.gemini/config/plugins/agyis-harness/) ── DEFAULT FALLBACK
-           (7 hooks.json blocks, 32 modular skills, 8 canonical personas, certified runtimes)
+           (7 hooks.json blocks, 33 modular skills, 8 canonical personas, certified runtimes)
 ```
 
 - **Codex v2 Governance (`8` + `1`)**: **8** core universal invariants (`PSL-INV-001`–`008` in `GLOBAL_AGENTS.md` / `harness/rules/`) plus the on-demand `PSL-RE-001` cleanroom RE pack housed in `harness/skills/re-ops/SKILL.md`.
-- **Modular Skills (`32`)**: Every `harness/skills/*/SKILL.md` over `100` lines carries a `## Table of Contents` and stays below `24,576` bytes (including `pause` and `resume` alongside `graceful-parking` and `powerloss-resume`); workspace skills mirroring plugin skills must be symlinks or pruned.
+- **Modular Skills (`33`)**: Every `harness/skills/*/SKILL.md` over `100` lines carries a `## Table of Contents` and stays below `24,576` bytes (including `crosstalk`, `pause`, and `resume` alongside `graceful-parking` and `powerloss-resume`); workspace skills mirroring plugin skills must be symlinks or pruned.
 - **Agent Personas (`8`)**: Standard `agyis_*` personas (`<=20` canonical `v2.34+` tools) stay global; workspace `.agents/agents/` is reserved strictly for domain-unique specialists ([`docs/runbooks/repo-onboarding.md`](docs/runbooks/repo-onboarding.md#4-human-workspace--agent-boundary-controls)).
 - **On-Demand REA Skill Healing**: `harness/runtime/healing.py` checks `rea-agents` packages and `~/.gemini/config/plugins/agyis-harness/skills/reverse-engineer-anything` rather than vendoring upstream skills in-tree.
 
@@ -287,7 +288,7 @@ Full reconciled tables and Issue #83 Route A/B/C scorecards:
 
 ## 🧪 Verification & Testing Contract
 
-All **2,695** unit, integration, and contract tests across **131 modules** (`127` `tests/test_*.py` + `4` `tests/e2e/test_*.py`) run hermetically with zero external network dependencies and zero live `~/.gemini/config/config.json` mutation:
+All **2,732** unit, integration, and contract tests across **135 modules** (`131` `tests/test_*.py` + `4` `tests/e2e/test_*.py`) run hermetically with zero external network dependencies and zero live `~/.gemini/config/config.json` mutation:
 
 ```bash
 ./agyis test                         # Full hermetic suite (~24s; sub-second component modules)
@@ -305,8 +306,8 @@ python3 -m harness.cli rules --lint  # Verify agent rules & zero echo duplicatio
 
 ## 🗺️ Master Roadmap & Architectural Horizons
 
-- **Horizon 0 & 1 (Completed — `v1.0.0` GA -> `v1.1.2` Uplift)**: Empirical taxonomy (`3,856`-session Gate 0 corpus), **PSL Invariant Codex v2** (`PSL-INV-001`–`008` + `PSL-RE-001`), **7** lifecycle hook blocks (**8** runner checks), **30**-command CLI suite (`31` parser entries incl. `project`, `release` & `changelogs`), **32** modular skills (incl. `pause` & `resume`), **8** canonical `v2.34+`/`v2.35.2` personas (`<=20` tool ceiling), strict `exa.hooks_pb` wire compatibility, Option-B checkpoint ConnectRPC Trajectory HUD & `:40624` playback parity, Orbital Aegis 5-route Light/Dark `2.5D` showcase, ELF/PE cleanroom RE tooling, **29/29** Antigravity `v2.34.0` / Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`/`1M`) compatibility drifts resolved, hardened sync-daemon/COPY/launcher stability (`#119`, `#120`, `#121`), CPython `3.14` recommended runtime, slim Prettier-clean `AGENTS.md` injection & non-mutating `.agyis/test_manifest.json` onboarding (`agyis project {list,ensure}`, `--ensure-project`, `engines`/`packageManager` preflight, `#101`/`#94`/burn-rate/PreInvocation fixes), and CI/release wheel publishing.
-- **Horizon 2 (Post-`v1.1.2`)**: Deferred `ADR-029` Spatial Terminal Multiplexing, Cross-Node Swarm & Publication, and RE & Audit Hardening.
+- **Horizon 0 & 1 (Completed — `v1.0.0` GA -> `v1.2.0` Uplift)**: Empirical taxonomy (`3,856`-session Gate 0 corpus), **PSL Invariant Codex v2** (`PSL-INV-001`–`008` + `PSL-RE-001`), **7** lifecycle hook blocks (**8** runner checks), **31**-command CLI suite (`32` parser entries incl. `crosstalk`, `project`, `release` & `changelogs`), **33** modular skills (incl. `crosstalk`, `pause` & `resume`), **8** canonical `v2.34+`/`v2.35.2` personas (`<=20` tool ceiling), strict `exa.hooks_pb` wire compatibility, Option-B checkpoint ConnectRPC Trajectory HUD & `:40624` playback parity, Orbital Aegis 5-route Light/Dark `2.5D` showcase, ELF/PE cleanroom RE tooling, **29/29** Antigravity `v2.34.0` / Gemini 4 (`gemini-4-neon`, `gemini-4-hydrogen`, `512k`/`1M`) compatibility drifts resolved, hardened sync-daemon/COPY/launcher stability (`#119`, `#120`, `#121`), CPython `3.14` recommended runtime, slim Prettier-clean `AGENTS.md` injection & non-mutating `.agyis/test_manifest.json` onboarding (`agyis project {list,ensure}`, `--ensure-project`, `engines`/`packageManager` preflight, `#101`/`#94`/burn-rate/PreInvocation fixes), and CI/release wheel publishing.
+- **Horizon 2 (Post-`v1.2.0`)**: Deferred `ADR-029` Spatial Terminal Multiplexing, Cross-Node Swarm & Publication, and RE & Audit Hardening.
 
 👉 **[roadmap.md](roadmap.md)** | **[CHANGELOG.md](CHANGELOG.md)** | **[docs/taxonomy/project-ledger.md](docs/taxonomy/project-ledger.md)** | **[docs/adr/README.md](docs/adr/README.md)**
 

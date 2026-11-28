@@ -3,20 +3,20 @@
 <!-- Corporate Stewardship & Infrastructure: Purrfect Software Limited (PSL) -->
 <!-- Governed by: ICARO-42/b Ordinance (Company-Supported Personal IP Framework) -->
 
-# Official Specification: Consolidated 30-Command / 31-Subparser CLI Palette
+# Official Specification: Consolidated 31-Command / 32-Subparser CLI Palette
 
 **Document**: Canonical CLI Subcommand Palette & Reference Guide  
 **Project**: Agyis Harness for Google Antigravity™ (`agyis-harness`)  
 **Publisher**: Purrfect Software Limited (PSL)  
 **License**: Apache-2.0  
 **Binary Entrypoint**: `agyis` (Primary) / `psl` (Deprecated Alias) / `python3 -m harness.cli`  
-**Last Updated**: 2026-11-27 (`v1.1.2`)  
+**Last Updated**: 2026-11-28 (`v1.2.0`)  
 
 ---
 
 ## 1. Executive Overview
 
-The unified developer CLI (`agyis` or `python3 -m harness.cli`, with backward-compatible alias `psl`) registers **30 logical top-level subcommands** (`31` registered subparsers including `changelogs` alias; `router` and `ladder` registered as sibling subparsers) across `harness/commands/`, `harness/delivery/`, `harness/subagents/`, `harness/remote/`, and `harness/telemetry/`. Per ADR-014 (Product vs. Project Bifurcation), core product CLI commands execute hermetically with zero mandatory third-party Python dependencies.
+The unified developer CLI (`agyis` or `python3 -m harness.cli`, with backward-compatible alias `psl`) registers **31 logical top-level subcommands** (`32` registered subparsers including `changelogs` alias; `router` and `ladder` registered as sibling subparsers) across `harness/commands/`, `harness/delivery/`, `harness/subagents/`, `harness/remote/`, and `harness/telemetry/`. Per ADR-014 (Product vs. Project Bifurcation), core product CLI commands execute hermetically with zero mandatory third-party Python dependencies.
 
 > [!NOTE]
 > **CLI Nomenclature & Deprecation Lifecycle**: `agyis` is the primary executable. The legacy command `psl` is preserved as a backward-compatible alias (`DeprecationWarning: 'psl' is deprecated and will be removed in 3 months. Use 'agyis' instead.` on `stderr`).
@@ -28,7 +28,7 @@ agyis [-h] [-v]
   ├── test          Run hermetic test suites with diff-aware filtering & benchmark timing
   ├── audit         Run empirical telemetry laboratory extraction, certification & AFF audit
   ├── rules         Audit, deduplicate, and harmonize global & workspace agent rule files
-  ├── skills        List, inspect, synchronize, and deduplicate modular product skills (32)
+  ├── skills        List, inspect, synchronize, and deduplicate modular product skills (33)
   ├── agents        Catalog, inspect, create, validate, and rehydrate specialist subagents (8)
   ├── subagents     List active subagents, liveness status, and live context health gauges
   ├── status        Print harness health, active hooks (7 blocks / 8 checks), horizon & telemetry
@@ -51,6 +51,7 @@ agyis [-h] [-v]
   ├── ladder        Sibling subparser alias for `router` across canonical workflows
   ├── clean         Multi-branch workspace hygiene, worktree pruning & build artifact removal (ADR-031A, ADR-031B)
   ├── project       List or idempotently register workspaces in Antigravity desktop project registry
+  ├── crosstalk     Discover Desktop/CLI threads, sanitize cross-project batons & render widgets
   ├── re            Cleanroom reverse engineering toolsuite & Ghidra acceleration (ADR-028, ADR-034)
   └── ext           Extensible workspace CLI command runner & scaffolding suite (ADR-034)
 ```
@@ -92,7 +93,7 @@ agyis [-h] [-v]
 
 ### 3. `test`
 * **Syntax**: `agyis test [-v] [-s <dir>] [--diff] [--branch <ref>] [--affected] [--pkg <name>] [--full] [--harmonize] [--dry-run] [--mutation] [--allow-no-tests] [--json]`
-* **Purpose**: Executes diff-aware or full project test suites (`--full` macro sweep across **127** `tests/test_*.py` + **4** `tests/e2e/test_*.py` modules = `131` total, **2,695** tests, while targeted component modules satisfy the `<1.0s` sub-second benchmark invariant), consults `.agyis/test_manifest.json` before `packageManager`/lockfile runner detection, rejects non-Python repos lacking executable runners (`no_executable_runner`, exit `1`) unless `--allow-no-tests` is passed, and clears verification fence flags on success.
+* **Purpose**: Executes diff-aware or full project test suites (`--full` macro sweep across **131** `tests/test_*.py` + **4** `tests/e2e/test_*.py` modules = `135` total, **2,732** tests, while targeted component modules satisfy the `<1.0s` sub-second benchmark invariant), consults `.agyis/test_manifest.json` before `packageManager`/lockfile runner detection, rejects non-Python repos lacking executable runners (`no_executable_runner`, exit `1`) unless `--allow-no-tests` is passed, and clears verification fence flags on success.
 * **Flags**:
   - `-v`, `--verbose`: Enables detailed individual test case reporting.
   - `-s`, `--start-dir <path>`: Directory containing test suites (defaults to `tests/`).
@@ -376,7 +377,20 @@ agyis [-h] [-v]
   - `list [--config-dir <path>] [--json]`: Lists registered Antigravity projects (`name`, `id`, `kind`, `default_branch`, `folder_uris`).
   - `ensure [path] [--config-dir <path>] [--name <name>] [--branch <branch>] [--dry-run] [--json]`: Idempotently registers `path` (default: CWD) with canonical `gitFolder` schema unless already registered (`action: "already_registered" | "would_create" | "created"`).
 
-### 29. `re`
+### 29. `crosstalk`
+* **Syntax**: `agyis crosstalk {list,search,status,inspect,widget,handoff,send,archive} [args]`
+* **Purpose**: Native cross-conversation, cross-project, and horizontal context succession engine (`harness/commands/crosstalk.py`, `harness/delivery/crosstalk.py`, `harness/ux/`). Never exposes `delete` / `DeleteConversation`.
+* **Subcommands**:
+  - `list [--project <p>] [--surface desktop|cli|ide|all] [--query <q>] [--include-archived] [--limit N] [--json]`
+  - `search [query] [--query <q>] [--project <p>] [--surface ...] [--include-archived] [--limit N] [--json]`
+  - `status [--session <cid>] [--workspace <ws>] [--surface auto|desktop|cli] [--json]`
+  - `inspect <conversation_id> [--steps N] [--strict] [--json]`
+  - `widget [--kind preflight|constellation] [--payload <file|-|json>] [--surface auto|desktop|cli] [--title <t>] [--artifact-dir <dir>] [--write] [--json]`
+  - `handoff [--to <target>|--new] [--project <p>] [--title <t>] [--summary <s>] [--task <t>] [--hops N] [--source-visibility private|oss] [--target-visibility private|oss] [--dry-run|--send] [--json]`
+  - `send [<target> <message> | --to <cid> --message <msg>] [--title <t>] [--hops N] [--source-visibility private|oss] [--target-visibility private|oss] [--dry-run] [--json]`
+  - `archive <conversation_id> [--unarchive] [--dry-run] [--json]`
+
+### 30. `re`
 * **Syntax**: `agyis re {status,init,patch-rea,pre-analyze,find,decompile,pcap,disasm,xrefs,addr,cache,daemon,seed,prime,clean} [args]`
 * **Purpose**: Cleanroom reverse engineering toolsuite, Ghidra direct-mount acceleration, persistent MCP daemon bridge & query caching engine (ADR-028, ADR-034, `PSL-RE-001`, Issue #113).
 * **Subcommands**:
@@ -396,7 +410,7 @@ agyis [-h] [-v]
   - `prime [--top <N>] [--file <path>] [--binary <name>] [--timeout <N>] [--dry-run] [--json]`: Pre-warms decompiler query cache on priority functions to guarantee sub-millisecond retrieval.
   - `clean [--locks] [--logs] [--vacuum] [--force] [--dry-run] [--json]`: Safe hygiene and space reclamation; removes orphan Ghidra locks, prunes old logs, and vacuums SQLite database.
 
-### 30. `ext`
+### 31. `ext`
 * **Syntax**: `agyis ext {list,run,init} [args]`
 * **Purpose**: Extensible workspace CLI command runner and management suite (ADR-034).
 * **Subcommands**:
@@ -410,12 +424,12 @@ agyis [-h] [-v]
 To verify the CLI palette programmatically:
 
 ```bash
-# Verify all 30 logical subcommands (31 subparser entries incl. changelogs alias; router and ladder separate subparsers) are registered:
+# Verify all 31 logical subcommands (32 subparser entries incl. changelogs alias; router and ladder separate subparsers) are registered:
 agyis --help
 # or: python3 -m harness.cli --help
 
 # Verify individual subcommand help dispatch:
-for cmd in doctor hook test audit rules skills agents subagents status remote auth sync init harmonize onboard install uninstall verify gui release release-notes changelog checkpoint cockpit router ladder clean project re ext; do
+for cmd in doctor hook test audit rules skills agents subagents status remote auth sync init harmonize onboard install uninstall verify gui release release-notes changelog checkpoint cockpit router ladder clean project crosstalk re ext; do
     agyis "$cmd" --help > /dev/null
 done
 ```

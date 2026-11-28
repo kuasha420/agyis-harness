@@ -14,7 +14,7 @@ body:
     attributes:
       label: Agyis Harness Version
       description: Exact active agyis-harness release version or git commit SHA (e.g. from `agyis --version` or `git rev-parse --short HEAD`).
-      placeholder: "e.g., 1.1.2 or fa8aff2"
+      placeholder: "e.g., 1.2.0 or fa8aff2"
     validations:
       required: true
   - type: textarea

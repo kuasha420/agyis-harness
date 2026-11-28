@@ -1,0 +1,265 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Arafat Zahan (@kuasha420) -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Crosstalk Preflight</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    .ct-dot { width: 8px; height: 8px; border-radius: 9999px; display: inline-block; flex-shrink: 0; }
+    .ct-mono { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body class="bg-transparent text-[var(--foreground)] antialiased p-0 m-0">
+  <div id="ct-root" class="py-1.5 space-y-2 text-xs">
+    <div class="flex items-start justify-between gap-2 pb-2 border-b border-[var(--card-border)]">
+      <div class="min-w-0">
+        <div class="flex items-center gap-2">
+          <span id="ct-goal-title" class="text-sm font-medium text-[var(--foreground)] truncate">Crosstalk Preflight</span>
+          <span id="ct-intent-badge" class="px-1.5 py-0.5 rounded border border-[var(--card-border)] text-[var(--muted-foreground)] font-mono">handoff</span>
+        </div>
+        <p id="ct-goal-line" class="text-xs text-[var(--muted-foreground)] truncate mt-0.5"></p>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        <span id="ct-vis-badge" class="inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded border border-[var(--card-border)] text-[var(--foreground)] font-medium">
+          <span id="ct-vis-dot" class="ct-dot" aria-hidden="true"></span>
+          <span id="ct-vis-text">Same-Project</span>
+        </span>
+        <span class="inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded border border-[var(--card-border)] font-mono ct-mono text-[var(--muted-foreground)]">
+          <span id="ct-hop-text">Hop 1/2</span>
+          <span class="w-10 h-1 rounded-full bg-[var(--secondary)] overflow-hidden inline-block">
+            <span id="ct-hop-bar" class="block h-full bg-[var(--primary)]" style="width: 50%"></span>
+          </span>
+        </span>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pb-2 border-b border-[var(--card-border)]">
+      <div class="min-w-0">
+        <div class="text-xs text-[var(--muted-foreground)] uppercase tracking-wider">Origin</div>
+        <div id="ct-from-route" class="font-mono text-[var(--foreground)] truncate mt-0.5"></div>
+        <div id="ct-from-cid" class="font-mono text-[var(--muted-foreground)] truncate"></div>
+      </div>
+      <div class="min-w-0 border-l-2 border-[var(--primary)] pl-2">
+        <div class="text-xs text-[var(--muted-foreground)] uppercase tracking-wider">Target</div>
+        <div id="ct-to-route" class="font-mono text-[var(--foreground)] truncate mt-0.5"></div>
+        <div id="ct-to-meta" class="font-mono text-[var(--muted-foreground)] truncate"></div>
+      </div>
+    </div>
+
+    <div class="pb-2 border-b border-[var(--card-border)] space-y-1">
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-1.5 font-medium text-[var(--foreground)]">
+          <span id="ct-shield-dot" class="ct-dot" aria-hidden="true"></span>
+          <span id="ct-shield-status">Privacy &amp; Safety Shield</span>
+        </div>
+        <div id="ct-shield-counts" class="flex items-center gap-3 font-mono ct-mono text-[var(--muted-foreground)]"></div>
+      </div>
+      <div id="ct-blocked-list" class="hidden flex flex-wrap gap-1 pt-0.5"></div>
+      <div id="ct-warnings-list" class="hidden space-y-0.5 pt-0.5"></div>
+    </div>
+
+    <div id="ct-refs-section" class="hidden pb-2 border-b border-[var(--card-border)] space-y-1">
+      <div class="text-xs text-[var(--muted-foreground)] uppercase tracking-wider">Cited Baton Artifacts</div>
+      <div id="ct-refs-list" class="space-y-1"></div>
+    </div>
+
+    <div id="ct-excerpt-section" class="hidden pb-2 border-b border-[var(--card-border)]">
+      <button id="ct-excerpt-toggle" type="button" aria-expanded="false" class="inline-flex items-center gap-1.5 text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary)] rounded px-1 py-0.5">
+        <span id="ct-excerpt-arrow">▸</span>
+        <span>Excerpt preview</span>
+      </button>
+      <pre id="ct-excerpt-body" class="hidden mt-1 p-2 rounded border border-[var(--card-border)] bg-[var(--card)] text-[var(--foreground)] font-mono overflow-y-auto whitespace-pre-wrap break-words" style="max-height: 96px; font-size: 12px;"></pre>
+    </div>
+
+    <div class="flex items-center justify-between gap-2 pt-0.5">
+      <code id="ct-cli-cmd" class="font-mono text-[var(--muted-foreground)] truncate select-all"></code>
+      <button id="ct-copy-btn" type="button" class="shrink-0 px-2 py-1 rounded border border-[var(--card-border)] bg-[var(--card)] text-[var(--foreground)] hover:border-[var(--primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary)] transition-colors">Copy CLI</button>
+    </div>
+  </div>
+
+  <script type="application/json" id="crosstalk-data">__CROSSTALK_VIEW_DATA__</script>
+  <script>
+    (function () {
+      "use strict";
+
+      function el(tag, className, text) {
+        var node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text !== undefined && text !== null) node.textContent = String(text);
+        return node;
+      }
+
+      function dotPalette() {
+        var isLight = document.documentElement.classList.contains("light");
+        return {
+          green: isLight ? "#63984f" : "#7aae66",
+          amber: isLight ? "#bca136" : "#cab43e",
+          red: isLight ? "#cb3d3d" : "#e05d5d",
+          muted: "var(--muted-foreground)"
+        };
+      }
+
+      function copyText(text, btn) {
+        if (!text) return;
+        function flashDone() {
+          if (!btn) return;
+          var prev = btn.textContent;
+          btn.textContent = "Copied";
+          setTimeout(function () { btn.textContent = prev; }, 1400);
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(flashDone, function () {
+            fallbackCopy(text, flashDone);
+          });
+        } else {
+          fallbackCopy(text, flashDone);
+        }
+      }
+
+      function fallbackCopy(text, done) {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand("copy"); } catch (_err) {}
+        document.body.removeChild(ta);
+        done();
+      }
+
+      var rawEl = document.getElementById("crosstalk-data");
+      var data = {};
+      try {
+        data = JSON.parse((rawEl && rawEl.textContent) || "{}");
+      } catch (_err) {
+        data = {};
+      }
+
+      var goal = data.goal || {};
+      var route = data.route || {};
+      var redaction = data.redaction || {};
+      var artifacts = Array.isArray(data.artifacts) ? data.artifacts : [];
+
+      document.getElementById("ct-goal-title").textContent = goal.title || "Crosstalk Preflight";
+      document.getElementById("ct-goal-line").textContent = goal.line || "";
+      document.getElementById("ct-intent-badge").textContent = route.intent || "handoff";
+
+      var vis = route.visibility || redaction.visibility_crossing || "Same-Project";
+      document.getElementById("ct-vis-text").textContent = vis;
+
+      var hop = Number(route.hop || 1);
+      var maxHops = Math.max(1, Number(route.max_hops || 2));
+      var pct = Math.max(0, Math.min(100, Math.round((hop / maxHops) * 100)));
+      document.getElementById("ct-hop-text").textContent = "Hop " + hop + "/" + maxHops;
+      document.getElementById("ct-hop-bar").style.width = pct + "%";
+
+      var fromProj = route.from_project || "current";
+      var fromBranch = route.from_branch ? "@" + route.from_branch : "";
+      document.getElementById("ct-from-route").textContent = fromProj + fromBranch;
+      document.getElementById("ct-from-cid").textContent = route.from_cid ? ("cid: " + route.from_cid) : "";
+
+      var toProj = route.to_project || "target";
+      var toBranch = route.to_branch ? "@" + route.to_branch : "";
+      document.getElementById("ct-to-route").textContent = toProj + toBranch;
+      var toMetaParts = [];
+      toMetaParts.push(route.to_cid ? ("cid: " + route.to_cid) : "new thread");
+      if (route.role_hint) toMetaParts.push("role: " + route.role_hint);
+      document.getElementById("ct-to-meta").textContent = toMetaParts.join(" · ");
+
+      var scrubbed = Number(redaction.tokens_scrubbed || 0);
+      var anonymized = Number(redaction.paths_anonymized || 0);
+      var blocked = Array.isArray(redaction.blocked_files) ? redaction.blocked_files : [];
+      var warnings = Array.isArray(redaction.warnings) ? redaction.warnings : [];
+      var passed = redaction.passed !== false;
+
+      var countsEl = document.getElementById("ct-shield-counts");
+      countsEl.appendChild(el("span", "", "scrubbed: " + scrubbed));
+      countsEl.appendChild(el("span", "", "paths: " + anonymized));
+      countsEl.appendChild(el("span", "", "blocked: " + blocked.length));
+
+      var shieldText = !passed
+        ? "Privacy Shield: Review Required"
+        : (scrubbed > 0 || anonymized > 0 || blocked.length > 0)
+          ? "Privacy Shield: Sanitized"
+          : "Privacy Shield: Clean";
+      document.getElementById("ct-shield-status").textContent = shieldText;
+
+      if (blocked.length > 0) {
+        var blockedWrap = document.getElementById("ct-blocked-list");
+        blockedWrap.classList.remove("hidden");
+        blocked.slice(0, 4).forEach(function (item) {
+          blockedWrap.appendChild(el("span", "px-1.5 py-0.5 rounded border border-[var(--card-border)] font-mono text-[var(--muted-foreground)]", "blocked: " + item));
+        });
+        if (blocked.length > 4) {
+          blockedWrap.appendChild(el("span", "px-1.5 py-0.5 text-[var(--muted-foreground)]", "+" + (blocked.length - 4) + " more"));
+        }
+      }
+
+      if (warnings.length > 0) {
+        var warnWrap = document.getElementById("ct-warnings-list");
+        warnWrap.classList.remove("hidden");
+        warnings.slice(0, 3).forEach(function (w) {
+          warnWrap.appendChild(el("div", "text-[var(--muted-foreground)]", "! " + w));
+        });
+      }
+
+      if (artifacts.length > 0) {
+        var refsSec = document.getElementById("ct-refs-section");
+        var refsList = document.getElementById("ct-refs-list");
+        refsSec.classList.remove("hidden");
+        artifacts.slice(0, 4).forEach(function (art) {
+          var row = el("div", "flex items-center justify-between gap-2 font-mono");
+          row.appendChild(el("span", "text-[var(--foreground)] truncate", art.label || art.kind || "ref"));
+          row.appendChild(el("span", "text-[var(--muted-foreground)] truncate", art.path || ""));
+          refsList.appendChild(row);
+        });
+      }
+
+      var excerpt = String(redaction.excerpt_preview || "").trim();
+      if (excerpt) {
+        var exSec = document.getElementById("ct-excerpt-section");
+        var exToggle = document.getElementById("ct-excerpt-toggle");
+        var exArrow = document.getElementById("ct-excerpt-arrow");
+        var exBody = document.getElementById("ct-excerpt-body");
+        exSec.classList.remove("hidden");
+        exBody.textContent = excerpt;
+        exToggle.addEventListener("click", function () {
+          var open = exToggle.getAttribute("aria-expanded") === "true";
+          exToggle.setAttribute("aria-expanded", open ? "false" : "true");
+          exArrow.textContent = open ? "▸" : "▾";
+          exBody.classList.toggle("hidden", open);
+        });
+      }
+
+      var cliCmd = redaction.cli_command || (route.to_cid ? ("agy --conversation " + route.to_cid) : "agyis crosstalk status");
+      document.getElementById("ct-cli-cmd").textContent = cliCmd;
+      document.getElementById("ct-copy-btn").addEventListener("click", function () {
+        copyText(cliCmd, this);
+      });
+
+      function syncTheme() {
+        var pal = dotPalette();
+        var isLight = document.documentElement.classList.contains("light");
+        document.body.dataset.theme = isLight ? "light" : "dark";
+        var visLower = String(vis).toLowerCase();
+        var visDot = document.getElementById("ct-vis-dot");
+        visDot.style.backgroundColor = visLower.indexOf("oss") !== -1 ? pal.amber : pal.muted;
+        var shieldDot = document.getElementById("ct-shield-dot");
+        shieldDot.style.backgroundColor = !passed
+          ? pal.red
+          : (warnings.length > 0 || blocked.length > 0)
+            ? pal.amber
+            : pal.green;
+      }
+
+      syncTheme();
+      window.addEventListener("themechange", syncTheme);
+    })();
+  </script>
+</body>
+</html>

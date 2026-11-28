@@ -56,6 +56,7 @@ _LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
     "cmd_checkpoint": ("harness.commands.checkpoint", "cmd_checkpoint"),
     "cmd_cockpit": ("harness.commands.cockpit", "cmd_cockpit"),
     "cmd_clean": ("harness.commands.clean", "cmd_clean"),
+    "cmd_crosstalk": ("harness.commands.crosstalk", "cmd_crosstalk"),
     "cmd_project": ("harness.commands.project", "cmd_project"),
     "cmd_re": ("harness.commands.re", "main"),
     "cmd_ext": ("harness.commands.ext", "main"),
@@ -92,6 +93,7 @@ _SUBCOMMAND_ATTRS: Dict[str, str] = {
     "router": "cmd_cockpit",
     "ladder": "cmd_cockpit",
     "clean": "cmd_clean",
+    "crosstalk": "cmd_crosstalk",
     "project": "cmd_project",
 }
 

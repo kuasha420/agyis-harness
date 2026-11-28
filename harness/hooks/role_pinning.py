@@ -54,6 +54,7 @@ _ORIG_GET_ACTIVE_BRAIN_DIR = get_active_brain_dir
 
 DEFAULT_ROLE_PINNING_CADENCE: int = 10
 _UUID_EXTRACT_RE = re.compile(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})")
+_CROSSTALK_ROLE_RE = re.compile(r"\[CROSSTALK-ROLE:\s*([A-Za-z0-9_:\-]+)\]", re.IGNORECASE)
 _EPHEMERAL_CIDS = frozenset({"", "default", "test", "conv_test"})
 _CANONICAL_ROLE_BUCKETS = frozenset({
     ROLE_FLIGHT_DIRECTOR,
@@ -402,16 +403,23 @@ def check_pillar_3_explicit_role(
     return normalize_role_str(env_role) if env_role else None
 
 
-def check_pillar_1_intent(
-    payload: Dict[str, Any],
-    conversation_id: str = "",
-    db_dir: Optional[Path] = None,
-    timeout: Optional[float] = None,
-    db_metrics: Optional[TrajectoryMetrics] = None,
-) -> Optional[str]:
-    """Pillar 1: Early-turn intent classification using prompt + SSOT Turn-0 SQLite/transcript."""
+def extract_crosstalk_role_hint(text: Optional[str]) -> Optional[str]:
+    """Extracts explicit Turn-0 [CROSSTALK-ROLE: <role>] marker from non-SDK text."""
+    if not text or not isinstance(text, str) or _is_sdk_injection_text(text):
+        return None
+    m = _CROSSTALK_ROLE_RE.search(text)
+    if not m:
+        return None
+    raw = m.group(1).strip()
+    return raw or None
+
+
+def _iter_payload_prompt_snippets(payload: Dict[str, Any]) -> List[str]:
     snippets: List[str] = []
-    for k in ("lastUserInput", "last_user_input", "prompt", "user_prompt", "userPrompt", "message", "query", "input", "initial_prompt", "task"):
+    for k in (
+        "lastUserInput", "last_user_input", "prompt", "user_prompt",
+        "userPrompt", "message", "query", "input", "initial_prompt", "task", "content",
+    ):
         v = payload.get(k)
         if isinstance(v, str) and v.strip() and not _is_sdk_injection_text(v):
             snippets.append(v.strip())
@@ -421,12 +429,83 @@ def check_pillar_1_intent(
             if isinstance(s, dict):
                 if str(s.get("source") or "").strip().upper() == "SYSTEM_SDK":
                     continue
-                for sk in ("lastUserInput", "prompt", "user_input", "userPrompt", "message", "text", "query", "input", "step_data"):
+                for sk in (
+                    "lastUserInput", "prompt", "user_input", "userPrompt",
+                    "message", "text", "query", "input", "step_data", "content",
+                ):
                     sv = s.get(sk)
                     if isinstance(sv, str) and sv.strip() and not _is_sdk_injection_text(sv):
                         snippets.append(sv.strip())
             elif isinstance(s, str) and s.strip() and not _is_sdk_injection_text(s):
                 snippets.append(s.strip())
+    return snippets
+
+
+def extract_crosstalk_role_from_payload(
+    payload: Dict[str, Any],
+    conversation_id: str = "",
+    db_dir: Optional[Path] = None,
+    timeout: Optional[float] = None,
+    db_metrics: Optional[TrajectoryMetrics] = None,
+    brain_dir: Optional[Path] = None,
+) -> Tuple[Optional[str], Optional[str]]:
+    """Resolves (canonical_role, raw_role_token) from [CROSSTALK-ROLE: ...] Turn-0 markers or metadata."""
+    for holder in (
+        payload,
+        *(pd for pk in ("metadata", "crosstalk", "context") if isinstance((pd := payload.get(pk)), dict)),
+    ):
+        for hk in ("role_hint", "roleHint", "crosstalkRole", "crosstalk_role"):
+            hv = holder.get(hk)
+            if isinstance(hv, str) and hv.strip():
+                raw_h = hv.strip()
+                if matched_h := normalize_role_str(raw_h):
+                    return matched_h, raw_h
+
+    for snip in _iter_payload_prompt_snippets(payload):
+        if raw_tag := extract_crosstalk_role_hint(snip):
+            if matched := normalize_role_str(raw_tag):
+                return matched, raw_tag
+
+    eff_cid, art_brain = resolve_conv_and_brain(payload, conversation_id)
+    if not eff_cid or eff_cid in _EPHEMERAL_CIDS:
+        return None, None
+
+    metrics = db_metrics
+    if metrics is None:
+        metrics = read_db_trajectory_state(eff_cid, db_dir=db_dir, timeout=timeout)
+    if metrics is not None:
+        for txt in (metrics.turn0_prompt, metrics.latest_user_prompt):
+            if raw_tag := extract_crosstalk_role_hint(txt):
+                if matched := normalize_role_str(raw_tag):
+                    return matched, raw_tag
+
+    b_dir = brain_dir or (
+        art_brain.parent if (art_brain is not None and art_brain.name == eff_cid)
+        else (get_active_brain_dir() if get_active_brain_dir is not _ORIG_GET_ACTIVE_BRAIN_DIR else None)
+    )
+    t_path, _ = find_transcript_path(eff_cid, brain_dir=b_dir)
+    if t_path is not None:
+        t_steps, _, _ = load_transcript_steps(t_path)
+        for ts in t_steps[:5]:
+            if not isinstance(ts, dict) or str(ts.get("source") or "").strip().upper() == "SYSTEM_SDK":
+                continue
+            content = ts.get("content") or ts.get("userInput") or ""
+            if isinstance(content, str) and content.strip() and "PreInvocation hook" not in content:
+                if raw_tag := extract_crosstalk_role_hint(content):
+                    if matched := normalize_role_str(raw_tag):
+                        return matched, raw_tag
+    return None, None
+
+
+def check_pillar_1_intent(
+    payload: Dict[str, Any],
+    conversation_id: str = "",
+    db_dir: Optional[Path] = None,
+    timeout: Optional[float] = None,
+    db_metrics: Optional[TrajectoryMetrics] = None,
+) -> Optional[str]:
+    """Pillar 1: Early-turn intent classification using prompt + SSOT Turn-0 SQLite/transcript."""
+    snippets = _iter_payload_prompt_snippets(payload)
 
     eff_cid, art_brain = resolve_conv_and_brain(payload, conversation_id)
     metrics = db_metrics
@@ -437,6 +516,11 @@ def check_pillar_1_intent(
             snippets.append(metrics.turn0_prompt)
         if metrics.latest_user_prompt and not snippets and not _is_sdk_injection_text(metrics.latest_user_prompt):
             snippets.append(metrics.latest_user_prompt)
+
+    for snip in snippets:
+        if raw_tag := extract_crosstalk_role_hint(snip):
+            if matched := normalize_role_str(raw_tag):
+                return matched
 
     if not snippets and eff_cid and eff_cid != "default":
         b_dir = (
@@ -454,6 +538,9 @@ def check_pillar_1_intent(
                     if _is_sdk_injection_text(content) or "PreInvocation hook" in content:
                         continue
                     snippets.append(content.strip())
+                    if raw_xt := extract_crosstalk_role_hint(content):
+                        if matched_xt := normalize_role_str(raw_xt):
+                            return matched_xt
                     role_hint = extract_role_from_text(content)
                     if role_hint:
                         matched = normalize_role_str(role_hint)
@@ -604,6 +691,14 @@ def classify_agent_role_details(
             eff_cid, brain_dir=eff_brain_dir, db_dir=db_dir, timeout=timeout or 0.5,
         )
         is_child = bool(parent_cid or depth > 0 or has_parent_conversation(payload, eff_cid, brain_dir=eff_brain_dir, db_dir=db_dir))
+
+        xt_role, xt_raw = extract_crosstalk_role_from_payload(
+            payload, conversation_id=eff_cid, db_dir=db_dir, timeout=timeout,
+            db_metrics=db_metrics, brain_dir=eff_brain_dir,
+        )
+        if xt_role:
+            ag = xt_raw if (xt_raw and xt_raw.lower() not in _CANONICAL_ROLE_BUCKETS) else native_agent_name
+            return xt_role, {"agent_name": ag, "parent_conversation_id": parent_cid, "source": "crosstalk_role", "is_fallback": False}
 
         p3 = check_pillar_3_explicit_role(payload, workspace_dir=workspace_dir, conversation_id=eff_cid, is_child=is_child)
         if p3:

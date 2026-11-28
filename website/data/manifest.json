@@ -4,8 +4,8 @@
   "source_db": "telemetry.db",
   "bundles": {
     "overview.json": {
-      "bytes": 2566,
-      "sha256": "c4e75a305078e861042c8fdec9bf92cd1965e62fdc235c17983df9b14baec921"
+      "bytes": 2587,
+      "sha256": "2937533df1efef8dde41ce3cf18d1a8688aaf22af2012821086b407690d68f68"
     },
     "eras.json": {
       "bytes": 79717,

@@ -18,6 +18,7 @@ import unittest
 
 from harness.telemetry.redaction import (
     anonymize_paths,
+    sanitize_crosstalk_payload,
     sanitize_intervention,
     sanitize_tool_call,
     strip_secrets,
@@ -440,6 +441,88 @@ class TestRedactionMicroBenchmark(unittest.TestCase):
             1.0,
             f"Secrets payload latency {secrets_avg_ms:.4f}ms exceeds 1.0ms limit",
         )
+
+
+class TestCsrfAndCrosstalkSanitization(unittest.TestCase):
+    """Verifies CSRF token redaction and sanitize_crosstalk_payload cross-project scrubbing."""
+
+    def test_csrf_token_variants_redacted_and_idempotent(self):
+        """Matches env vars, HTTP headers, JSON keys, and CLI flags for CSRF tokens."""
+        cases = [
+            ("ANTIGRAVITY_CSRF_TOKEN=csrf_secret_abc123", "ANTIGRAVITY_CSRF_TOKEN=[REDACTED_SECRET]"),
+            ('export CODEIUM_CSRF_TOKEN="codeium_secret_xyz"', 'export CODEIUM_CSRF_TOKEN="[REDACTED_SECRET]"'),
+            ("x-antigravity-csrf-token: hdr_secret_999", "x-antigravity-csrf-token: [REDACTED_SECRET]"),
+            ('curl -H "x-codeium-csrf-token: hdr_codeium_777"', 'curl -H "x-codeium-csrf-token: [REDACTED_SECRET]"'),
+            ('{"csrfToken": "json_csrf_secret_42", "ok": true}', '{"csrfToken": "[REDACTED_SECRET]", "ok": true}'),
+            ('{"x-antigravity-csrf-token": "json_hdr_secret", "v": 1}', '{"x-antigravity-csrf-token": "[REDACTED_SECRET]", "v": 1}'),
+            ("--csrf-token=cli_csrf_secret_55", "--csrf-token=[REDACTED_SECRET]"),
+            ("MY_CUSTOM_CSRF_TOKEN=custom_val_123", "MY_CUSTOM_CSRF_TOKEN=[REDACTED_SECRET]"),
+        ]
+        for raw, expected in cases:
+            cleaned = strip_secrets(raw)
+            self.assertEqual(cleaned, expected)
+            self.assertEqual(strip_secrets(cleaned), cleaned)
+
+        for benign in ('{"csrfToken": ""}', '{"csrfToken": null}', "ANTIGRAVITY_CSRF_TOKEN=None"):
+            self.assertEqual(strip_secrets(benign), benign)
+
+    def test_sanitize_crosstalk_payload_counts_and_blocks(self):
+        """Scrubs secrets, source/target workspaces, home dirs, and sensitive file blocks/refs."""
+        src_ws = Path("/tmp/fake_home/src-repo")
+        tgt_ws = Path("/tmp/fake_home/tgt-repo")
+        raw = (
+            f"Source {src_ws}/harness/app.py -> Target {tgt_ws}/README.md\n"
+            "Home file: /home/developer/.config/tool.json\n"
+            "Header x-antigravity-csrf-token: top_secret_csrf_123\n"
+            '{"csrfToken": "json_tok_987"}\n'
+            "```env\nDB_PASS=supersecret99\n```\n"
+            "Check .env.local, certs/server.pem, tls.key, and .dirtyroom/dump.c\n"
+            "Preserve DOM event.key and os.environ cleanly."
+        )
+        cleaned, report = sanitize_crosstalk_payload(
+            raw,
+            source_ws=src_ws,
+            target_ws=tgt_ws,
+            strict=False,
+        )
+        self.assertNotIn(str(src_ws), cleaned)
+        self.assertNotIn(str(tgt_ws), cleaned)
+        self.assertNotIn("/home/developer", cleaned)
+        self.assertNotIn("top_secret_csrf_123", cleaned)
+        self.assertNotIn("json_tok_987", cleaned)
+        self.assertNotIn("DB_PASS=supersecret99", cleaned)
+        self.assertNotIn(".dirtyroom", cleaned)
+        self.assertNotIn(".env.local", cleaned)
+        self.assertNotIn("server.pem", cleaned)
+        self.assertNotIn("tls.key", cleaned)
+
+        self.assertIn("[WORKSPACE_ROOT]/harness/app.py", cleaned)
+        self.assertIn("[TARGET_WORKSPACE]/README.md", cleaned)
+        self.assertIn("[USER_HOME]/.config/tool.json", cleaned)
+        self.assertIn("[REDACTED_SENSITIVE_BLOCK]", cleaned)
+        self.assertIn("[REDACTED_DIRTYROOM_REF]", cleaned)
+        self.assertIn("[REDACTED_ENV_REF]", cleaned)
+        self.assertIn("[REDACTED_KEY_REF]", cleaned)
+        self.assertIn("event.key", cleaned)
+        self.assertIn("os.environ", cleaned)
+
+        self.assertEqual(report["secrets_redacted"], 2)
+        self.assertEqual(report["paths_anonymized"], 3)
+        self.assertEqual(report["blocked_refs"], 5)
+        self.assertTrue(report["has_blocked_refs"])
+        self.assertTrue(report["dirtyroom_detected"])
+        self.assertIn("dirtyroom", report["blocked_categories"])
+
+    def test_sanitize_crosstalk_payload_strict_mode(self):
+        """Strict mode scrubs extra cookie/jwt/email fields without breaking benign text."""
+        raw = "Contact ops@example.com with JWT_SECRET=very_secret_jwt_val and COOKIE=sess_abc123"
+        cleaned, report = sanitize_crosstalk_payload(raw, strict=True)
+        self.assertNotIn("ops@example.com", cleaned)
+        self.assertNotIn("very_secret_jwt_val", cleaned)
+        self.assertNotIn("sess_abc123", cleaned)
+        self.assertIn("[REDACTED_EMAIL]", cleaned)
+        self.assertGreaterEqual(report["secrets_redacted"], 3)
+        self.assertTrue(report["strict"])
 
 
 if __name__ == "__main__":

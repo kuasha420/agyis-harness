@@ -8,7 +8,7 @@
 **Document Identifier**: `PSL-SPEC-2026-COCKPIT-DIRECTOR-001`  
 **Classification**: Authoritative System Living Contract & Track C Standard  
 **Governing ADRs**: ADR-012 (Artifact-First Planning), ADR-013 (Terminal Invariants), ADR-014 (Product vs. Project Bifurcation), ADR-015 (Clean-Room Testing & Verification), ADR-028 (Cleanroom Reconstruction), ADR-031A (Native Orchestration Alignment), ADR-032 (Tool-Native Primacy & Anti-Polling)  
-**System Target**: Google Antigravity (`Desktop v2.34.0+`, `agy v1.5.15`, `IDE v2.8.0`, Gemini 4 `512k`/`1M`) & Agyis Harness (`agyis-harness v1.1.2`)  
+**System Target**: Google Antigravity (`Desktop v2.34.0+`, `agy v1.5.15`, `IDE v2.8.0`, Gemini 4 `512k`/`1M`) & Agyis Harness (`agyis-harness v1.2.0`)  
 **Status**: APPROVED & LOCKED  
 **Date**: November 27, 2026  
 
@@ -310,7 +310,7 @@ Scaled proportionally across `256k`, **Gemini 4 (`gemini-4-neon`, `gemini-4-hydr
 3. **🔴 Compaction Imminent (>=90% scaled window or Spawns >= 16; `>=460k` on `512k`, `>=230k` on `256k`)**:
    - `pre_invocation_hook.py` detects token proximity via read-only SQLite protobuf accounting (`input + cacheRead`) and injects a nested **`systemMessage`** (`{"systemMessage": {"systemMessage": "...", "metadata": {}}}`) **Compaction Imminent Advisory**.
    - Mandatory materialization of working memory: the Flight Director or Coordinator executes `agyis checkpoint generate` (`harness/delivery/compaction_checkpoint.py`) to assemble `.agents/artifacts/compaction_checkpoint_latest.md` (and CID-scoped `.agents/artifacts/checkpoints/<conv_id>.md`).
-   - The Flight Director prompts the operator for a clean `/compact` slash command or dispatches a clean successor (`invoke_subagent` using a valid specialist persona with `Workspace="inherit"`, or `swarm` `fork`; never pass `TypeName="self"` or unknown internal aliases, which risk platform hangs).
+   - The Flight Director prompts the operator for `/compact` or initiates clean horizontal succession via `/crosstalk` (`agyis crosstalk handoff --new` — primary cross-thread / cross-project succession carrier), or dispatches a registered specialist persona (`invoke_subagent` with `TypeName="agyis_coordinator"` and `Workspace="inherit"`, or `swarm` `fork`; never pass `TypeName="self"` or unknown internal aliases, which risk platform hangs).
 
 ### 4.2 Compaction Mechanics in the Antigravity Engine
 Reverse engineering of the compiled binary (`/usr/bin/agy` `1.5.15` and `/opt/Antigravity/resources/bin/language_server`, `v2.34.0+`) confirmed that compaction operates as a two-phase pipeline:

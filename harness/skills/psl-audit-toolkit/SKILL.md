@@ -85,3 +85,6 @@ for r in c.fetchall():
     print(f'{r[1]}x: {r[0]}')
 "
 ```
+
+### Cross-Session Handoff (`/crosstalk`)
+When sharing empirical audit summaries across workspaces or continuing a deep session in a fresh thread, use `agyis crosstalk handoff` (`--dry-run` first) to redact local paths/tokens automatically and link source threads with clickable `conversation://` pills.
